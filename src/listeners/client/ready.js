@@ -121,7 +121,20 @@ module.exports = class extends Listener {
 		} else {
 			// send inactivity warnings and close stale tickets
 			const staleInterval = ms('15m');
-			setInterval(() => handleStaleTickets(client, staleInterval), staleInterval);
+			let checking = false;
+			const check = async () => {
+				if (checking) return;
+				checking = true;
+				try {
+					await handleStaleTickets(client, staleInterval);
+				} catch (error) {
+					client.log.error(error);
+				} finally {
+					checking = false;
+				}
+			};
+			await check();
+			setInterval(check, staleInterval);
 		}
 	}
 };

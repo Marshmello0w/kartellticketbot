@@ -21,6 +21,7 @@ expose({
 		}
 
 		ticket.closedReason &&= decrypt(ticket.closedReason);
+		ticket.closeRequestReason &&= decrypt(ticket.closeRequestReason);
 
 		delete ticket.guildId;
 

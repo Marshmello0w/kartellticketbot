@@ -208,7 +208,15 @@ module.exports = class extends Listener {
 					}).catch(client.log.error);
 
 					// set first and last message timestamps
-					const data = { lastMessageAt: new Date() };
+					const pendingMessageId = ticket.closeRequestMessageId;
+					const data = {
+						lastMessageAt: new Date(),
+						closeRequestedAt: null,
+						closeScheduledAt: null,
+						closeRequestedById: null,
+						closeRequestReason: null,
+						closeRequestMessageId: null,
+					};
 					if (
 						ticket.firstResponseAt === null &&
 						await isStaff(message.guild, message.author.id)
@@ -218,16 +226,9 @@ module.exports = class extends Listener {
 						where: { id: ticket.id },
 					});
 
-					// if the ticket was set as stale, unset it
-					if (client.tickets.$stale.has(ticket.id)) {
-						const $ticket = client.tickets.$stale.get(ticket.id);
-						$ticket.messages++;
-						if ($ticket.messages >= 1) {
-							await message.channel.messages.delete($ticket.message.id);
-							client.tickets.$stale.delete(ticket.id);
-						} else {
-							client.tickets.$stale.set(ticket.id, $ticket);
-						}
+					// The message update atomically cancelled any pending closure.
+					if (pendingMessageId) {
+						await message.channel.messages.delete(pendingMessageId).catch(client.log.error);
 					}
 				}
 

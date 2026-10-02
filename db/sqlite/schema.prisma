@@ -191,6 +191,11 @@ model Ticket {
     categoryId          Int?
     claimedBy           User?             @relation(name: "TicketsClaimedByUser", fields: [claimedById], references: [id])
     claimedById         String?
+    closeRequestedAt    DateTime?
+    closeScheduledAt    DateTime?
+    closeRequestedById  String?
+    closeRequestReason  String?
+    closeRequestMessageId String?
     closedAt            DateTime?
     closedBy            User?             @relation(name: "TicketsClosedByUser", fields: [closedById], references: [id])
     closedById          String?

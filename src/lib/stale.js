@@ -16,8 +16,19 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 				where: { open: true },
 			},
 		},
-		// where: { staleAfter: { not: null } },
-		where: { staleAfter: { gte: staleInterval } },
+		where: {
+			OR: [
+				{ staleAfter: { not: null } },
+				{
+					tickets: {
+						some: {
+							open: true,
+							closeRequestedAt: { not: null },
+						},
+					},
+				},
+			],
+		},
 	});
 	let processed = 0;
 	let closed = 0;
@@ -28,29 +39,36 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 		for (const ticket of guild.tickets) {
 			try {
 				processed++;
-				if (client.tickets.$stale.has(ticket.id)) {
-					const $ = client.tickets.$stale.get(ticket.id);
-					const autoCloseAfter = $.closeAt - $.staleSince;
-					const halfway = $.closeAt - (autoCloseAfter / 2);
-					const channel = client.channels.cache.get(ticket.id);
-					if (!channel) {
-						client.tickets.$stale.delete(ticket.id);
-						continue;
-					}
-					if (Date.now() >= halfway && Date.now() < halfway + staleInterval) {
+				if (ticket.closeRequestedAt) {
+					if (!ticket.closeScheduledAt) continue;
+					const closeAt = ticket.closeScheduledAt.getTime();
+					const halfway = ticket.closeRequestedAt.getTime() + (closeAt - ticket.closeRequestedAt.getTime()) / 2;
+					if (Date.now() >= closeAt) {
+						const current = await client.prisma.ticket.findUnique({ where: { id: ticket.id } });
+						if (!current?.open || current.closeScheduledAt?.getTime() !== closeAt) continue;
+						try {
+							await client.channels.fetch(ticket.id);
+						} catch (error) {
+							if (error.code !== 10003) throw error; // Unknown Channel: still finalise the database record.
+						}
+						await client.tickets.finallyClose(ticket.id, {
+							...await client.tickets.getCloseDetails(ticket.id),
+							expectedCloseAt: ticket.closeScheduledAt,
+						});
+						closed++;
+					} else if (Date.now() >= halfway && Date.now() < halfway + staleInterval) {
+						const channel = await client.channels.fetch(ticket.id);
+						if (!channel) continue;
 						await channel.send({
 							embeds: [
 								new ExtendedEmbedBuilder()
 									.setColor(guild.primaryColour)
 									.setTitle(getMessage('ticket.closing_soon.title'))
-									.setDescription(getMessage('ticket.closing_soon.description', { timestamp: Math.floor(($.closeAt + staleInterval) / 1000) })),
+									.setDescription(getMessage('ticket.closing_soon.description', { timestamp: Math.floor(closeAt / 1000) })),
 							],
 						});
-					} else if ($.closeAt < Date.now()) {
-						await client.tickets.finallyClose(ticket.id, $);
-						closed++;
 					}
-				} else if (Date.now() - (ticket.lastMessageAt || ticket.createdAt) >= guild.staleAfter) {
+				} else if (guild.staleAfter && Date.now() - (ticket.lastMessageAt || ticket.createdAt) >= guild.staleAfter) {
 					// set as stale
 					/** @type {import("discord.js").TextChannel} */
 					const channel = await client.channels.fetch(ticket.id);
@@ -95,14 +113,10 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 						],
 					});
 
-					client.tickets.$stale.set(ticket.id, {
-						closeAt: guild.autoClose ? Date.now() + guild.autoClose : null,
-						closedBy: null,
-						message: sent,
-						messages: 0,
-						reason: 'inactivity',
-						staleSince: Date.now(),
-					});
+					await client.tickets.scheduleClose({
+						...ticket,
+						guild,
+					}, sent, null, 'inactivity');
 					marked++;
 				}
 			} catch (error) {
@@ -114,6 +128,11 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 		closed,
 		marked,
 		processed,
-		stale: client.tickets.$stale.size,
+		stale: await client.prisma.ticket.count({
+			where: {
+				open: true,
+				closeRequestedAt: { not: null },
+			},
+		}),
 	});
 };

@@ -69,6 +69,7 @@ expose({
 		delete ticket.createdById;
 
 		ticket.closedReason &&= encrypt(ticket.closedReason);
+		ticket.closeRequestReason &&= encrypt(ticket.closeRequestReason);
 
 		if (ticket.feedback) {
 			ticket.feedback.guild = { connect: { id: guildId } };

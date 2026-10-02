@@ -18,7 +18,6 @@ const ms = require('ms');
 const ExtendedEmbedBuilder = require('../embed');
 const { logTicketEvent } = require('../logging');
 const { isStaff } = require('../users');
-const { Collection } = require('discord.js');
 const spacetime = require('spacetime');
 
 const { getSUID } = require('../logging');
@@ -49,7 +48,46 @@ module.exports = class TicketManager {
 		this.archiver = new TicketArchiver(client);
 		this.$count = { categories: {} };
 		this.$numbers = {};
-		this.$stale = new Collection();
+	}
+
+
+	async scheduleClose(ticket, message, closedBy, reason) {
+		const now = new Date();
+		await this.client.prisma.ticket.updateMany({
+			data: {
+				closeRequestedAt: now,
+				closeScheduledAt: ticket.guild.autoClose ? new Date(now.getTime() + ticket.guild.autoClose) : null,
+				closeRequestedById: closedBy || null,
+				closeRequestReason: reason ? await crypto.queue(w => w.encrypt(reason)) : null,
+				closeRequestMessageId: message.id,
+			},
+			where: {
+				id: ticket.id,
+				open: true,
+				lastMessageAt: ticket.lastMessageAt,
+			},
+		});
+	}
+
+	async cancelClose(ticketId) {
+		await this.client.prisma.ticket.update({
+			data: {
+				closeRequestedAt: null,
+				closeScheduledAt: null,
+				closeRequestedById: null,
+				closeRequestReason: null,
+				closeRequestMessageId: null,
+			},
+			where: { id: ticketId },
+		});
+	}
+
+	async getCloseDetails(ticketId) {
+		const ticket = await this.client.prisma.ticket.findUnique({ where: { id: ticketId } });
+		return {
+			closedBy: ticket.closeRequestedById,
+			reason: ticket.closeRequestReason ? await crypto.queue(w => w.decrypt(ticket.closeRequestReason)) : null,
+		};
 	}
 
 	/**
@@ -1117,7 +1155,7 @@ module.exports = class TicketManager {
 			return this.finallyClose(ticket.id, { reason });
 		}
 
-		this.requestClose(interaction, reason);
+		await this.requestClose(interaction, reason);
 	}
 
 	/**
@@ -1128,7 +1166,7 @@ module.exports = class TicketManager {
 	 */
 	async requestClose(interaction, reason) {
 		// interaction could be command, button. or modal
-		const ticket = await this.getTicket(interaction.channel.id);
+		const ticket = await this.getTicket(interaction.channel.id, true);
 		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
 		const staff = interaction.user.id !== ticket.createdById && await isStaff(interaction.guild, interaction.user.id);
 		const closeButtonId = {
@@ -1175,14 +1213,7 @@ module.exports = class TicketManager {
 			embeds: [embed],
 		});
 
-		this.$stale.set(ticket.id, {
-			closeAt: ticket.guild.autoClose ? Date.now() + ticket.guild.autoClose : null,
-			closedBy: interaction.user.id, // null if set as stale due to inactivity
-			message: sent,
-			messages: 0,
-			reason,
-			staleSince: Date.now(),
-		});
+		await this.scheduleClose(ticket, sent, interaction.user.id, reason);
 
 		if (ticket.priority && ticket.priority !== 'LOW') {
 			await this.client.prisma.ticket.update({
@@ -1212,7 +1243,7 @@ module.exports = class TicketManager {
 			],
 		});
 		await new Promise(resolve => setTimeout(resolve, 3e3));
-		await this.finallyClose(interaction.channel.id, this.$stale.get(interaction.channel.id) || {});
+		await this.finallyClose(interaction.channel.id, await this.getCloseDetails(interaction.channel.id));
 	}
 
 	/**
@@ -1222,8 +1253,10 @@ module.exports = class TicketManager {
 	async finallyClose(ticketId, {
 		closedBy = null,
 		reason = null,
+		expectedCloseAt = null,
 	}) {
-		let ticket = await this.getTicket(ticketId);
+		let ticket = await this.getTicket(ticketId, true);
+		if (!ticket || !ticket.open) return;
 		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
 
 		const { _count: { archivedMessages } } = await this.client.prisma.ticket.findUnique({
@@ -1233,13 +1266,13 @@ module.exports = class TicketManager {
 
 		/** @type {import("@prisma/client").Ticket} */
 		const data = {
+			closeRequestedAt: null,
+			closeScheduledAt: null,
+			closeRequestedById: null,
+			closeRequestReason: null,
+			closeRequestMessageId: null,
 			closedAt: new Date(),
-			closedBy: closedBy && {
-				connectOrCreate: {
-					create: { id: closedBy },
-					where: { id: closedBy },
-				},
-			} || undefined, // Prisma wants undefined not null because it is a relation
+			closedById: closedBy,
 			closedReason: reason && await crypto.queue(w => w.encrypt(reason)),
 			messageCount: archivedMessages,
 			open: false,
@@ -1253,8 +1286,24 @@ module.exports = class TicketManager {
 		}
 
 		try {
-			ticket = await this.client.prisma.ticket.update({
+			if (closedBy) {
+				await this.client.prisma.user.upsert({
+					where: { id: closedBy },
+					create: { id: closedBy },
+					update: {},
+				});
+			}
+			// Claim once; cancellation and overlapping checks cannot close twice.
+			const result = await this.client.prisma.ticket.updateMany({
 				data,
+				where: {
+					id: ticket.id,
+					open: true,
+					...(expectedCloseAt ? { closeScheduledAt: expectedCloseAt } : {}),
+				},
+			});
+			if (!result.count) return;
+			ticket = await this.client.prisma.ticket.findUnique({
 				include: {
 					category: true,
 					feedback: true,
@@ -1262,7 +1311,6 @@ module.exports = class TicketManager {
 				},
 				where: { id: ticket.id },
 			});
-			if (this.$stale.has(ticketId)) this.$stale.delete(ticketId);
 			this.$count.categories[ticket.categoryId] ??= {};
 			this.$count.categories[ticket.categoryId].total -= 1;
 			this.$count.categories[ticket.categoryId][ticket.createdById] -= 1;
