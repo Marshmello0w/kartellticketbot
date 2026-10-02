@@ -9,7 +9,7 @@ const { getSupportMessages } = require('./support-texts');
 const transcriptInclude = {
 	archivedChannels: true,
 	archivedMessages: {
-		orderBy: { createdAt: 'asc' },
+		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
 		where: { external: false },
 	},
 	archivedRoles: true,
@@ -23,12 +23,12 @@ const transcriptInclude = {
 	questionAnswers: { include: { question: true } },
 };
 
-async function renderTranscript(client, original) {
+async function renderTranscript(client, original, options = {}) {
 	const { pools } = require('./threads');
 	const ticket = await pools.transcript.queue(worker => worker(original));
-	const templateName = client.config.templates.transcript;
-	const template = fs.readFileSync(join('./user/templates', templateName + '.mustache'), 'utf8');
-	const channelName = (ticket.category?.channelName || 'ticket-{number}')
+	const configured = client.config.templates?.transcript;
+	const templateName = options.forceHtml || !configured || ['transcript.md', 'transcript.html'].includes(configured) ? 'transcript.html' : configured;
+	const channelName = (ticket.channelBaseName || ticket.category?.channelName || 'ticket-{number}')
 		.replace(/{+\s?(user)?name\s?}+/gi, ticket.createdBy?.username || 'user')
 		.replace(/{+\s?(nick|display)(name)?\s?}+/gi, ticket.createdBy?.displayName || 'user')
 		.replace(/{+\s?num(ber)?\s?}+/gi, ticket.number);
@@ -37,7 +37,36 @@ async function renderTranscript(client, original) {
 		timeStyle: full ? 'long' : 'short',
 		timeZone: 'Etc/UTC',
 	}).format(date);
-	const fileName = `${channelName}.${templateName.split('.').at(-1)}`;
+	// eslint-disable-next-line no-control-regex -- Reject control characters in file names.
+	const fileName = `${channelName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')}.${templateName.split('.').at(-1)}`;
+	if (templateName === 'transcript.html') {
+		if (!options.assets && client.prisma.driveAsset) {
+			const missing = await client.prisma.driveAsset.findMany({
+				where: {
+					archiveId: original.id,
+					OR: [{ state: 'missing' }, { errorCode: 'MISSING' }],
+				},
+				select: { assetKey: true },
+			});
+			options = {
+				...options,
+				missingAssets: new Set(missing.map(asset => asset.assetKey)),
+			};
+		}
+		const { renderHtml } = require('./transcript-html');
+		const templatePath = join('./user/templates', 'transcript.html.mustache');
+		return {
+			fileName,
+			transcript: renderHtml(ticket, {
+				...options,
+				i18n: client.i18n,
+				channelName,
+				guildName: client.guilds.cache.get(ticket.guildId)?.name,
+				templatePath: fs.existsSync?.(templatePath) ? templatePath : undefined,
+			}),
+		};
+	}
+	const template = fs.readFileSync(join('./user/templates', templateName + '.mustache'), 'utf8');
 	const transcript = Mustache.render(template, {
 		channelName,
 		ticket,
@@ -52,7 +81,7 @@ async function renderTranscript(client, original) {
 		createdAtTimestamp() {
 			return formatDate(this.createdAt, false);
 		},
-	}, { }, { escape: text => text });
+	}, { }, { escape: templateName.endsWith('.html') ? Mustache.escape : text => text });
 	return {
 		fileName,
 		transcript,
@@ -141,6 +170,7 @@ async function deliverTranscript(client, ticketId) {
 					});
 				}
 				sent = await channel.send({
+					...(ticket.guild.driveArchiveEnabled ? { content: getMessage('ticket.transcript.drive.pending') } : {}),
 					embeds: [embed],
 					files: [new AttachmentBuilder(Buffer.from(transcript), { name: fileName })],
 					allowedMentions: { parse: [] },
@@ -156,6 +186,18 @@ async function deliverTranscript(client, ticketId) {
 					transcriptNextAttemptAt: null,
 				},
 			});
+			if (client.prisma.driveArchive) {
+				await client.prisma.driveArchive.updateMany({
+					where: {
+						id: ticketId,
+						state: { notIn: ['deleted', 'deleting'] },
+					},
+					data: {
+						transcriptChannelId: channel.id,
+						nextAttemptAt: null,
+					},
+				});
+			}
 		} catch (error) {
 			const attempts = ticket.transcriptAttempts + 1;
 			const delay = attempts === 1 ? 60000 : attempts === 2 ? 300000 : 900000;

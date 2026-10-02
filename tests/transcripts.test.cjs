@@ -36,13 +36,14 @@ function fixture(options = {}) {
  const module = { exports: {} };
  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/lib/transcripts.js'), 'utf8'), {
   module, Date, Buffer, process,
-  require: name => name === './support-texts' ? support : name === './threads' ? { pools: { transcript: { queue: async callback => callback(value => value) }, crypto: { queue: async callback => callback({ decrypt: text => text }) } } } : name === 'fs' ? { readFileSync: () => 'Transcript {{ticket.number}}: {{guildName}}' } : require(name),
+  require: name => name === './transcript-html' ? require('../src/lib/transcript-html') : name === './support-texts' ? support : name === './threads' ? { pools: { transcript: { queue: async callback => callback(value => value) }, crypto: { queue: async callback => callback({ decrypt: text => text }) } } } : name === 'fs' ? { readFileSync: () => 'Transcript {{ticket.number}}: {{guildName}}' } : require(name),
  });
  return { ...module.exports, ticket, channel, client, sent, errors };
 }
 test('automatic transcript sends file and metadata only to transcript channel', async () => {
  const f = fixture(); await f.deliverTranscript(f.client, f.ticket.id);
- assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.files[0].name, 'ticket-7.md');
+ assert.equal(f.sent.length, 1); assert.equal(f.sent[0].payload.files[0].name, 'ticket-7.html');
+ assert.match(f.sent[0].payload.files[0].attachment.toString(), /<!doctype html>/);
  assert.equal(f.sent[0].embeds[0].title, 'Archive #7');
  assert.equal(f.ticket.transcriptPending, false); assert.equal(f.ticket.transcriptMessageId, f.sent[0].id);
  assert.ok(f.sent[0].payload.allowedMentions.parse.length === 0);

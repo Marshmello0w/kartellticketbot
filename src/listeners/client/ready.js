@@ -153,6 +153,10 @@ module.exports = class extends Listener {
 		};
 		await sendTranscripts();
 		setInterval(sendTranscripts, ms('1m'));
+		const { tick } = require('../../lib/drive-archive');
+		const archiveTick = startup => tick(client, startup).catch(() => client.log.warn('Drive archive worker could not complete its check'));
+		archiveTick(true);
+		setInterval(() => archiveTick(false), 30000);
 
 		if (process.env.PUBLIC_BOT === 'true') {
 			client.log.notice('Inactivity warnings and auto-close features are disabled');

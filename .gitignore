@@ -10,3 +10,5 @@
 *.log
 *.DS_Store
 summary.md
+/google-drive.json
+/desktop-oauth.json

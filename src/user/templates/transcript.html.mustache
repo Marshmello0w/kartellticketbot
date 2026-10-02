@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="{{locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none';">
+<title>{{title}} · {{guildName}}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#313338;color:#dbdee1;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}a{color:#00a8fc;text-decoration:none}a:hover{text-decoration:underline}.top{background:#232428;padding:24px max(24px,calc((100% - 1100px)/2));border-bottom:1px solid #1e1f22}.top h1{margin:4px 0;font-size:25px;color:#f2f3f5}.top p{margin:4px 0;color:#b5bac1;font-size:14px}.container{max-width:1100px;margin:auto;padding:20px 24px}.summary{background:#2b2d31;border-radius:8px;padding:20px;margin-bottom:24px}.summary dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:0}.summary dt{font-size:12px;text-transform:uppercase;color:#b5bac1}.summary dd{margin:3px 0;white-space:pre-wrap;overflow-wrap:anywhere}.summary section{margin:12px 0}.summary summary{cursor:pointer;font-weight:600}.day{display:flex;align-items:center;gap:12px;font-size:12px;color:#b5bac1;margin:26px 0 12px}.day:before,.day:after{content:"";height:1px;background:#4e5058;flex:1}.message{display:flex;gap:16px;padding:12px 4px;scroll-margin:20px}.message:hover{background:#2e3035}.message:target{background:#3d3d32}.avatar{width:40px;height:40px;border-radius:50%;flex:none;object-fit:cover}.fallback{background:#5865f2;color:white;display:grid;place-items:center;font-size:14px}.body{min-width:0;flex:1;overflow-wrap:anywhere}.message header{margin-bottom:2px}.time,small{font-size:12px;color:#949ba4}.time{margin-left:8px}.bot{background:#5865f2;border-radius:3px;color:white;font-size:10px;padding:1px 4px}.grouped{padding-top:2px;padding-left:60px}.grouped header{float:right;margin-left:12px}.grouped .time{font-size:11px}.message p{margin:0 0 5px;white-space:normal}pre{background:#2b2d31;border:1px solid #1e1f22;border-radius:5px;padding:12px;overflow:auto}code{background:#2b2d31;padding:1px 4px;border-radius:3px}pre code{padding:0}blockquote{margin:4px 0;padding-left:12px;border-left:4px solid #4e5058}.mention{background:#414675;color:#c9cdfb;border-radius:3px;padding:0 2px}.emoji{height:22px;width:22px;vertical-align:middle;object-fit:contain}.reply{color:#b5bac1;font-size:13px;margin-bottom:5px}.reply a{color:inherit}.embed{background:#2b2d31;border-left:4px solid;border-radius:4px;padding:12px 16px;max-width:550px;margin:8px 0}.embed-author{font-weight:600;font-size:13px}.embed-fields{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0}.embed-fields>div{flex-basis:100%}.embed-fields>.inline{flex:1;min-width:120px}.embed strong{color:#f2f3f5}.media{display:block;max-width:min(100%,550px);max-height:420px;object-fit:contain;border-radius:6px;margin:6px 0}.attachment{margin:8px 0;max-width:600px}.attachment>div{background:#2b2d31;border:1px solid #1e1f22;padding:8px 12px;border-radius:5px}.components{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.component{font-size:14px;border-radius:4px;background:#4e5058;color:#fff;padding:6px 12px;opacity:.85}.style-1{background:#5865f2}.style-3{background:#248046}.style-4{background:#da373c}.missing{color:#f0b232}.spoiler{display:inline-block;background:#1e1f22;border-radius:3px;padding:0 4px}.spoiler summary{cursor:pointer}.note{padding:8px 12px;background:#2b2d31;font-size:13px;margin-bottom:16px;border-radius:5px}
+@media(max-width:600px){body{font-size:14px}.container{padding:12px}.top{padding:16px}.message{gap:10px}.avatar{width:32px;height:32px}.grouped{padding-left:46px}.summary{padding:14px}.grouped header{float:none;margin:0}.media{max-height:280px}}
+.embed-author .media,.embed-footer .media{display:inline-block;width:24px;height:24px;object-fit:cover;border-radius:50%;vertical-align:middle;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="top"><p>{{guildName}} · {{ticketId}}</p><h1># {{channelName}} · {{title}}</h1><p>UTC</p></div>
+<main class="container">
+<div class="summary"><dl>{{{metadata}}}</dl>{{#questions}}<details><summary>{{questionsLabel}}</summary>{{{questions}}}</details>{{/questions}}</div>
+<div class="note">{{info}}{{#unavailable}}<p class="missing">{{unavailable}}</p>{{/unavailable}}</div>
+{{{messages}}}
+</main>
+</body>
+</html>

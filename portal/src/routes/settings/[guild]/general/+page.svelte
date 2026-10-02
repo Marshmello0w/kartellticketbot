@@ -26,6 +26,7 @@
 	});
 
 	onMount(() => {
+		refreshDrive();
 		window.addEventListener('beforeunload', (event) => {
 			if (modified) {
 				event.preventDefault();
@@ -56,6 +57,18 @@
 	let autoTag = $state(Array.isArray(settings.autoTag) ? 'custom' : settings.autoTag); // there are 2 inputs for autoTag, need separate variables
 	let error = $state(null);
 	let loading = $state(false);
+	let drive = $state(null);
+	let driveLoading = $state(false);
+	const driveErrors = { AUTH: 'Google-Anmeldung erneuern', QUOTA: 'Google-Drive-Speicher voll', NOT_CONFIGURED: 'Noch nicht eingerichtet', FOLDER: 'Archivordner nicht erreichbar', NOT_PRIVATE: 'Archivordner ist freigegeben', PERMISSION: 'Berechtigung fehlt', SOURCE: 'Discord-Datei wird erneut abgerufen', MISSING: 'Datei nicht mehr erreichbar', DISK: 'Lokaler Speicher nicht verfügbar', UPLOAD: 'Upload wird wiederholt', RATE_LIMIT: 'Google begrenzt die Anfragen', DELETE: 'Löschung wird wiederholt' };
+	const refreshDrive = async () => {
+		driveLoading = true;
+		try {
+			const response = await fetch(`/api/admin/guilds/${$page.params.guild}/drive`, { credentials: 'include' });
+			if (!response.ok) throw new Error('Status nicht verfügbar');
+			drive = await response.json();
+		} catch { drive = { connected: false, error: 'UPLOAD', pending: 0, archives: [] }; }
+		finally { driveLoading = false; }
+	};
 
 	const submit = async () => {
 		try {
@@ -106,6 +119,33 @@
 	{#if error}
 		<ErrorBox {error} />
 	{/if}
+	<section class="mb-8 rounded-lg border border-gray-300 p-4 dark:border-slate-600">
+		<h2 class="mb-3 font-semibold">Google-Drive-Archiv</h2>
+		<label class="flex items-center gap-3">
+			<input type="checkbox" class="form-checkbox" bind:checked={settings.driveArchiveEnabled} onchange={() => (modified = true)} />
+			<span>HTML und Anhänge privat in Google Drive sichern</span>
+		</label>
+		<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">ZIP herunterladen, entpacken und transcript.html öffnen. Die Dateien werden 90 Tage nach Ticketabschluss gelöscht. Nur du hast direkten Drive-Zugriff.</p>
+		{#if drive}
+			<p class="mt-3 text-sm">Verbindung: <strong>{drive.connected ? 'Verbunden' : driveErrors[drive.error] || 'Nicht verbunden'}</strong> · Ausstehende Dateien: {drive.pending}</p>
+			{#if drive.archives?.length}
+				<ul class="mt-2 space-y-1 text-sm">
+					{#each drive.archives as archive}
+						<li>Ticket #{archive.number}: {archive.state === 'ready' ? archive.complete ? 'Gesichert' : 'Unvollständig gesichert' : archive.state === 'deleting' ? 'Wird gelöscht' : 'Wird archiviert'}{archive.errorCode ? ' · ' + (driveErrors[archive.errorCode] || 'Wiederholung ausstehend') : ''}</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if drive.failures?.length}
+				<ul class="mt-2 space-y-1 text-sm text-orange-600 dark:text-orange-400">
+					{#each drive.failures as file}
+						<li>Ticket #{file.archive.number} · {file.fileName}: {driveErrors[file.errorCode] || 'Wiederholung ausstehend'}</li>
+					{/each}
+				</ul>
+			{/if}
+		{/if}
+		<button type="button" class="mt-3 text-sm text-orange-600 hover:underline dark:text-orange-400" onclick={refreshDrive} disabled={driveLoading}>{driveLoading ? 'Status wird geladen…' : 'Status aktualisieren'}</button>
+		<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Einmalige Verbindung mit dem mitgelieferten Einrichtungsprogramm. Nachrichtenarchivierung muss aktiviert sein.</p>
+	</section>
 	<div class="mb-8 text-center text-orange-600 dark:text-orange-400">
 		<p class="font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> Warning</p>
 		<p>

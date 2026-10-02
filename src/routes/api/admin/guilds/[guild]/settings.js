@@ -38,6 +38,18 @@ module.exports.patch = fastify => ({
 		const client = req.routeOptions.config.client;
 		const id = req.params.guild;
 		const original = await client.prisma.guild.findUnique({ where: { id } });
+		if (Object.hasOwn(data, 'driveArchiveEnabled')) {
+			if (typeof data.driveArchiveEnabled !== 'boolean') throw Object.assign(new Error('Ungültiger Drive-Schalter.'), { statusCode: 400 });
+			if (data.driveArchiveEnabled) {
+				if (!(Object.hasOwn(data, 'archive') ? data.archive : original?.archive) || process.env.OVERRIDE_ARCHIVE === 'false') throw Object.assign(new Error('Drive-Archivierung benötigt aktivierte Nachrichtenarchivierung.'), { statusCode: 400 });
+				try {
+					await require('../../../../../lib/google-drive').getDrive(client).validateRoot();
+				} catch {
+					throw Object.assign(new Error('Google Drive ist nicht verbunden oder der Archivordner ist nicht privat und beschreibbar.'), { statusCode: 400 });
+				}
+			}
+		}
+		if (data.archive === false) data.driveArchiveEnabled = false;
 		try {
 			await validateOverviewChannel(client, id, Object.hasOwn(data, 'ticketOverviewChannel') ? data.ticketOverviewChannel : original?.ticketOverviewChannel, Object.hasOwn(data, 'logChannel') ? data.logChannel : original?.logChannel, Object.hasOwn(data, 'transcriptChannel') ? data.transcriptChannel : original?.transcriptChannel);
 		} catch (error) {
@@ -61,6 +73,20 @@ module.exports.patch = fastify => ({
 
 		// Update cached categories, which include guild settings
 		for (const { id } of settings.categories) await client.tickets.getCategory(id, true);
+		if (data.driveArchiveEnabled) {
+			const {
+				ensureArchive, tick,
+			} = require('../../../../../lib/drive-archive');
+			const tickets = await client.prisma.ticket.findMany({
+				where: {
+					guildId: id,
+					open: true,
+				},
+				include: { guild: true },
+			});
+			for (const ticket of tickets) await ensureArchive(client, ticket);
+			tick(client).catch(() => client.log.warn('Drive archive sync pending'));
+		}
 		if (['ticketOverviewChannel', 'automaticTicketStatus'].some(key => Object.hasOwn(data, key))) {
 			const tickets = await client.prisma.ticket.findMany({
 				where: {

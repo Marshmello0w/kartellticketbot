@@ -431,6 +431,40 @@ ticket:
     title: "Transkript für Ticket #{number}"
     creator: Erstellt von
     automatic: Automatisch
+    html:
+      automatic: Automatisch
+      category: Kategorie
+      creator: Ersteller
+      created: Erstellt
+      closed: Geschlossen
+      open: Noch offen
+      closedBy: Geschlossen von
+      claimed: Zuständiger Supporter
+      topic: Thema
+      reason: Schließgrund
+      rating: Bewertung
+      feedback: Feedback
+      questions: Fragen und Antworten
+      noAnswer: Keine Antwort
+      empty: Keine archivierten Nachrichten vorhanden.
+      edited: (bearbeitet)
+      deleted: (im Ticket gelöscht)
+      unknown: Unbekannter Teilnehmer
+      missingReply: Antwort auf eine nicht archivierte Nachricht
+      attachment: Anhang
+      unavailable: Datei nicht verfügbar
+      spoiler: Spoiler anzeigen
+      menu: Auswahlmenü
+      external: Bilder und Dateien werden über externe Links geladen. Das ZIP-Archiv enthält separat gesicherte Dateien.
+      offline: Offline-Archiv. Gesicherte Dateien befinden sich im Ordner files. Externe Webseiten und Medien bleiben Links.
+      incomplete: Dieses Archiv ist unvollständig. Nicht mehr erreichbare Dateien sind entsprechend gekennzeichnet.
+    drive:
+      pending: Das ZIP mit gesicherten Anhängen wird erstellt.
+      ready: Das ZIP enthält den HTML-Chat und gesicherte Dateien. Entpacken und transcript.html öffnen.
+      incomplete: Das ZIP wurde erstellt, einige Dateien waren jedoch nicht mehr erreichbar. Hinweise stehen im HTML und in archive-info.json.
+      large: Das ZIP überschreitet das Discord-Dateilimit und liegt im privaten Drive-Archiv. Nur der Betreiber hat direkten Drive-Zugriff.
+      failed: Das Anhangsarchiv ist gerade nicht abrufbar. Der HTML-Download bleibt verfügbar. Bitte später erneut versuchen.
+      expires: "Das Drive-Archiv wird am {timestamp} gelöscht. Bereits heruntergeladene oder in Discord versendete Kopien bleiben bestehen."
   answers:
     no_value: '*Keine Antwort*'
   close:

@@ -1,6 +1,7 @@
 const { pools } = require('../threads');
 
 const { crypto } = pools;
+const { captureContent } = require('../drive-archive');
 
 /**
  * Returns highest (roles.highest) hoisted role, or everyone
@@ -56,7 +57,16 @@ module.exports = class TicketArchiver {
 		try {
 			const queries = [];
 
-			members.add(message.member);
+			if (message.member) {
+				members.add(message.member);
+			} else if (message.author) {
+				members.add({
+					user: message.author,
+					displayName: message.author.globalName || message.author.username,
+					guild: message.guild,
+					roles: { hoist: null },
+				});
+			}
 
 			for (const member of members) {
 				roles.add(hoistedRole(member));
@@ -135,16 +145,29 @@ module.exports = class TicketArchiver {
 				);
 			}
 
-			const data = {
-				content: await crypto.queue(w => w.encrypt(
-					JSON.stringify({
-						attachments: [...message.attachments.values()],
-						components: [...message.components.values()],
-						content: message.content,
-						embeds: message.embeds.map(embed => ({ ...embed })),
-						reference: message.reference?.messageId ?? null,
+			const content = {
+				attachments: [...message.attachments.values()],
+				components: [...message.components.values()],
+				content: message.content,
+				embeds: message.embeds.map(embed => ({ ...embed })),
+				reference: message.reference?.messageId ?? null,
+				author: {
+					username: message.author?.username,
+					displayName: message.member?.displayName || message.author?.globalName || message.author?.username,
+					userId: message.author?.id,
+					avatarUrl: message.member?.displayAvatarURL?.({
+						extension: 'png',
+						size: 128,
+					}) || message.author?.displayAvatarURL?.({
+						extension: 'png',
+						size: 128,
 					}),
-				)),
+					bot: Boolean(message.author?.bot),
+					roleId: message.member ? hoistedRole(message.member).id : null,
+				},
+			};
+			const data = {
+				content: await crypto.queue(w => w.encrypt(JSON.stringify(content))),
 				createdAt: message.createdAt,
 				edited: !!message.editedAt,
 				external,
@@ -164,7 +187,15 @@ module.exports = class TicketArchiver {
 				}),
 			);
 
-			return await this.client.prisma.$transaction(queries);
+			const result = await this.client.prisma.$transaction(queries);
+			if (!external) {
+				const ticket = await this.client.prisma.ticket.findUnique({
+					where: { id: ticketId },
+					include: { guild: true },
+				});
+				if (ticket) await captureContent(this.client, ticket, content, message.id).catch(() => this.client.log.warn('Drive attachment registration failed for ticket %s', ticketId));
+			}
+			return result;
 		} catch (error) {
 			this.client.log.error('Failed to archive message %s', message.id);
 			this.client.log.error(error);

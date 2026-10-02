@@ -18,7 +18,7 @@ Begrüßung, Fragen, Kategorienamen und Beschreibungen bleiben in ihren bisherig
 
 Unter **General → Transkript-Kanal** einen eigenen Textkanal wählen und **Archive** aktivieren. Der Kanal muss zum selben Server gehören und sich vom Log-Kanal unterscheiden. Der Bot braucht Kanalansicht, Nachrichtenverlauf, Nachrichten senden, Links einbetten und Dateien anhängen.
 
-Beim Schließen wird dort eine Datei im bisherigen Transkript-Format zusammen mit Ticketnummer, Kategorie, Ersteller, Abschlusszeit, schließender Person und gegebenenfalls Grund abgelegt. Das gilt auch für bestätigte und automatische Schließungen. Der Log-Kanal erhält weiterhin Abschlusslogs, aber keine Transkript-Datei und keinen Transkript-Button. Der bisherige manuelle Download einschließlich seiner Zugriffsprüfungen und der Download-Button in der Abschluss-Direktnachricht bleiben erhalten.
+Beim Schließen wird dort eine HTML-Datei zusammen mit Ticketnummer, Kategorie, Ersteller, Abschlusszeit, schließender Person und gegebenenfalls Grund abgelegt. Das gilt auch für bestätigte und automatische Schließungen. Der Log-Kanal erhält weiterhin Abschlusslogs, aber keine Transkript-Datei und keinen Transkript-Button. Der bisherige manuelle Download einschließlich seiner Zugriffsprüfungen und der Download-Button in der Abschluss-Direktnachricht bleiben erhalten. Die optionale Sicherung von Anhängen und Offline-ZIPs ist unter [HTML-Transkripte und Google Drive](html-transcripts-and-drive.md) beschrieben.
 
 Ohne Transkript-Kanal oder bei deaktivierter Archivierung entsteht kein automatischer Versandauftrag. `OVERRIDE_ARCHIVE=false` deaktiviert die automatische Ablage ebenfalls. Es gibt keinen Rückfall auf den Log-Kanal und keinen nachträglichen automatischen Versand bereits geschlossener Tickets.
 

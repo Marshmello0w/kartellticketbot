@@ -106,7 +106,34 @@ module.exports = class TranscriptSlashCommand extends SlashCommand {
 			.setFile(Buffer.from(transcript))
 			.setName(fileName);
 
-		await interaction.editReply({ files: [attachment] });
+		const files = [attachment];
+		let archive;
+		let content;
+		try {
+			const {
+				acquireZip, uploadLimit,
+			} = require('../../lib/drive-archive');
+			archive = await acquireZip(client, ticket.id, uploadLimit(interaction.guild, interaction));
+			const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
+			if (archive?.path) {
+				files.push(new AttachmentBuilder(archive.path, { name: `ticket-${ticket.number}.zip` }));
+				content = getMessage('ticket.transcript.drive.' + (archive.complete ? 'ready' : 'incomplete'));
+			} else if (archive?.tooLarge) {
+				content = getMessage('ticket.transcript.drive.large') + (!archive.complete ? '\n' + getMessage('ticket.transcript.drive.incomplete') : '');
+			}
+		} catch {
+			const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
+			content = getMessage('ticket.transcript.drive.failed');
+		}
+		try {
+			await interaction.editReply({
+				files,
+				...(content ? { content: content.slice(0, 2000) } : {}),
+				allowedMentions: { parse: [] },
+			});
+		} finally {
+			await archive?.release?.();
+		}
 		// TODO: add portal link
 	}
 };

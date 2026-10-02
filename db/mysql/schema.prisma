@@ -113,6 +113,7 @@ model Feedback {
 }
 
 model Guild {
+    driveArchiveEnabled Boolean @default(false)
     ticketOverviewChannel String?
     automaticTicketStatus Boolean @default(true)
     textOverrides   Json     @default("{}")
@@ -140,6 +141,63 @@ model Guild {
 
     @@map("guilds")
 }
+
+model DriveArchive {
+    leaseUntil DateTime?
+    id String @id
+    guildId String
+    number Int
+    rootFolderId String
+    folderId String?
+    state String @default("collecting")
+    createdAt DateTime @default(now())
+    closedAt DateTime?
+    expiresAt DateTime?
+    zipFileId String?
+    zipSize Float @default(0)
+    zipSession String? @db.Text
+    zipUploadedBytes Float @default(0)
+    zipLocalReady Boolean @default(false)
+    complete Boolean @default(false)
+    discordDelivered Boolean @default(false)
+    transcriptChannelId String?
+    backfilledAt DateTime?
+    attempts Int @default(0)
+    nextAttemptAt DateTime?
+    errorCode String?
+    assets DriveAsset[]
+
+    @@index([state, nextAttemptAt])
+    @@index([expiresAt])
+    @@map("driveArchives")
+}
+
+model DriveAsset {
+    leaseUntil DateTime?
+    id String @id
+    archiveId String
+    archive DriveArchive @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+    assetKey String @db.Text
+    messageId String?
+    sourceUrl String @db.Text
+    fileName String
+    relativePath String
+    mime String
+    size Float @default(0)
+    localReady Boolean @default(false)
+    driveFileId String?
+    uploadSession String? @db.Text
+    uploadedBytes Float @default(0)
+    state String @default("pending")
+    attempts Int @default(0)
+    nextAttemptAt DateTime?
+    errorCode String?
+    createdAt DateTime @default(now())
+
+    @@index([state, nextAttemptAt])
+    @@map("driveAssets")
+}
+
 
 model Question {
     answers     QuestionAnswer[]

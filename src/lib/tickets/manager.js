@@ -758,6 +758,12 @@ module.exports = class TicketManager {
 		try {
 			data.channelBaseName = channel.name;
 			const ticket = await this.client.prisma.ticket.create({ data });
+			if (category.guild.driveArchiveEnabled) {
+				await require('../drive-archive').ensureArchive(this.client, {
+					...ticket,
+					guild: category.guild,
+				}).catch(() => this.client.log.warn('Drive archive registration failed for ticket %s', ticket.id));
+			}
 			requestSync(this.client, ticket.id);
 			this.$count.categories[categoryId].total++;
 			this.$count.categories[categoryId][creator.id]++;
@@ -1111,6 +1117,7 @@ module.exports = class TicketManager {
 	}) {
 		let ticket = await this.getTicket(ticketId, true);
 		if (!ticket || !ticket.open) return;
+		if (ticket.guild.driveArchiveEnabled) await require('../drive-archive').ensureArchive(this.client, ticket).catch(() => this.client.log.warn('Drive archive registration failed for ticket %s', ticketId));
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 
 		await this.archiver?.flush(ticketId);
@@ -1176,6 +1183,7 @@ module.exports = class TicketManager {
 			return;
 		}
 
+		if (this.client.prisma.driveArchive) await require('../drive-archive').markClosed(this.client, ticket).catch(() => this.client.log.warn('Drive archive close registration failed for ticket %s', ticketId));
 		syncTicket(this.client, ticket.id).catch(this.client.log.error);
 		const guild = this.client.guilds.cache.get(ticket.guildId);
 

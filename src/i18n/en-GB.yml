@@ -454,6 +454,40 @@ ticket:
     title: "Ticket #{number} transcript"
     creator: Created by
     automatic: Automatic
+    html:
+      automatic: Automatic
+      category: Category
+      creator: Created by
+      created: Created
+      closed: Closed
+      open: Still open
+      closedBy: Closed by
+      claimed: Assigned supporter
+      topic: Topic
+      reason: Closing reason
+      rating: Rating
+      feedback: Feedback
+      questions: Questions and answers
+      noAnswer: No answer
+      empty: No archived messages.
+      edited: (edited)
+      deleted: (deleted in the ticket)
+      unknown: Unknown participant
+      missingReply: Reply to a message that was not archived
+      attachment: Attachment
+      unavailable: File unavailable
+      spoiler: Show spoiler
+      menu: Select menu
+      external: Images and files load from external links. The ZIP archive contains separately saved files.
+      offline: Offline archive. Saved files are in the files folder. External websites and media remain links.
+      incomplete: This archive is incomplete. Unavailable files are marked accordingly.
+    drive:
+      pending: The ZIP with saved attachments is being prepared.
+      ready: The ZIP contains the HTML chat and saved files. Extract it and open transcript.html.
+      incomplete: The ZIP was created, but some files were unavailable. See the HTML and archive-info.json for details.
+      large: The ZIP exceeds Discord's file limit and is stored in the private Drive archive. Only the operator has direct Drive access.
+      failed: The attachment archive is temporarily unavailable. The HTML download remains available. Please try again later.
+      expires: "The Drive archive will be deleted on {timestamp}. Copies already downloaded or sent to Discord will remain."
   answers:
     no_value: "*No response*"
   claimed: 🙌 {user} has claimed this ticket.
