@@ -12,9 +12,10 @@ Die Datei zeigt den Verlauf im dunklen Discord-Stil mit Namen, Rollenfarben, Ava
 
 1. In der [Google Cloud Console](https://console.cloud.google.com/) ein Projekt für das Ticketarchiv erstellen und die **Google Drive API** aktivieren.
 2. Unter **Google Auth Platform** die App einrichten, bei einem privaten normalen Google-Konto mit externer Zielgruppe. Als Zugriff ausschließlich `https://www.googleapis.com/auth/drive.file` verwenden. Das ist der von Google empfohlene begrenzte Zugriff auf vom Programm erstellte oder ausdrücklich bereitgestellte Dateien; kein Zugriff auf das gesamte Drive wird angefordert. Siehe [Drive-Berechtigungen](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
-3. Einen OAuth-Client vom Typ **Desktop-App** erstellen und seine JSON-Datei herunterladen. Zum Beispiel als `desktop-oauth.json` außerhalb des Repositorys ablegen.
-4. Den Veröffentlichungsstatus der OAuth-App auf **In Produktion** setzen. Im externen Testmodus laufen Refresh-Tokens für diesen Zugriff nach sieben Tagen ab. Produktion ist keine Garantie für unbegrenzte Token-Gültigkeit: Widerruf und andere Google-Regeln gelten weiterhin. Siehe [Google OAuth und Token-Ablauf](https://developers.google.com/identity/protocols/oauth2#expiration). Eventuell angezeigte Prüfanforderungen von Google im eigenen Cloud-Projekt beachten.
-5. Auf deinem PC mit Node.js 18 oder neuer das mitgelieferte `scripts/connect-google-drive.js` ausführen:
+3. Unter **Branding** die Konfiguration vervollständigen und speichern: App-Name, Nutzersupport-E-Mail und Entwicklerkontakt sowie die Links zur App-Startseite, Datenschutzerklärung und Nutzungsbedingungen. Google verlangt diese Links für externe Apps in Produktion. Die Startseite muss öffentlich erreichbar sein, die Funktion der App erklären und auf die Datenschutzinformationen verweisen. Die Links gehören auf eine eigene Domain; diese unter **Autorisierte Domains** eintragen und bei erforderlicher Überprüfung über die Google Search Console bestätigen. Die Bot-Verwaltungsoberfläche und die Archive können weiterhin privat bleiben. Siehe [Google-Branding-Anforderungen](https://support.google.com/cloud/answer/15549049?hl=en) und [öffentliche App-Startseite](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance#host-a-home-page-for-production-apps).
+4. Einen OAuth-Client vom Typ **Desktop-App** erstellen und seine JSON-Datei herunterladen. Zum Beispiel als `desktop-oauth.json` außerhalb des Repositorys ablegen.
+5. Unter **Zielgruppe** auf **App veröffentlichen** klicken, bis der Veröffentlichungsstatus **In Produktion** lautet. Ist der Button gesperrt und verweist auf Branding, zuerst Schritt 3 abschließen. Im externen Testmodus dürfen sich nur eingetragene Testnutzer anmelden; andernfalls erscheint `403: access_denied`. Auch mit eingetragenem Testnutzer laufen Refresh-Tokens für diesen Zugriff nach sieben Tagen ab. Deshalb die folgende Anmeldung für die dauerhafte Verbindung erst im Produktionsstatus durchführen. Produktion ist keine Garantie für unbegrenzte Token-Gültigkeit: Widerruf und andere Google-Regeln gelten weiterhin. Siehe [Google-Zielgruppe und Testmodus](https://support.google.com/cloud/answer/15549945?hl=en). Eventuell angezeigte Prüfanforderungen von Google im eigenen Cloud-Projekt beachten.
+6. Auf deinem PC mit Node.js 18 oder neuer das mitgelieferte `scripts/connect-google-drive.js` ausführen:
 
 ```powershell
 node scripts/connect-google-drive.js --client "C:/privat/desktop-oauth.json" --output "C:/privat/google-drive.json"
@@ -24,7 +25,7 @@ Das Programm öffnet die Google-Anmeldung im Browser. Melde dich mit deinem eige
 
 Das Programm erstellt den privaten Drive-Ordner **Kartell Ticketarchive**. Es gibt keine Freigabe an das Supportteam und keine öffentlichen Drive-Links. Eine vorhandene Ausgabedatei wird nicht überschrieben.
 
-6. Die erzeugte `google-drive.json` geschützt auf den Bot-Host übertragen, beispielsweise nach `/AMP/node-server/app/user/google-drive.json`. In der Bot-Konfiguration setzen:
+7. Die erzeugte `google-drive.json` geschützt auf den Bot-Host übertragen, beispielsweise nach `/AMP/node-server/app/user/google-drive.json`. In der Bot-Konfiguration setzen:
 
 ```dotenv
 GOOGLE_DRIVE_AUTH_FILE=/AMP/node-server/app/user/google-drive.json
@@ -32,7 +33,7 @@ GOOGLE_DRIVE_AUTH_FILE=/AMP/node-server/app/user/google-drive.json
 
 Nur der Bot-Benutzer soll die Datei lesen können (unter Linux beispielsweise Dateirechte `600`, privates Verzeichnis `700`). Zugangsdaten niemals in GitHub, Discord, Transkripte oder Supportnachrichten kopieren. Das Arbeitsverzeichnis `user/drive-spool` ebenfalls nicht öffentlich über einen Webserver anbieten; der Bot legt es mit privaten Dateirechten an.
 
-7. Bot neu starten, im Portal **General → Google-Drive-Archiv** den Verbindungsstatus prüfen und die Archivierung aktivieren. **Archive** muss eingeschaltet sein. Ein Transkript-Kanal wird unabhängig davon ausgewählt. Danach gelten Änderungen am Schalter sofort, ohne Neustart.
+8. Bot neu starten, im Portal **General → Google-Drive-Archiv** den Verbindungsstatus prüfen und die Archivierung aktivieren. **Archive** muss eingeschaltet sein. Ein Transkript-Kanal wird unabhängig davon ausgewählt. Danach gelten Änderungen am Schalter sofort, ohne Neustart.
 
 Bei einer widerrufenen Anmeldung das Programm erneut ausführen, in eine neue Ausgabedatei schreiben und die Zugangsdaten auf dem Bot-Host ersetzen. Derselbe OAuth-Client muss beibehalten werden, damit bereits erstellte App-Dateien weiterhin zugänglich bleiben. Für denselben Archivordner die bisherige `rootFolderId` in der neuen privaten Konfigurationsdatei beibehalten; der vom neuen Einrichtungsdurchlauf zusätzlich erzeugte leere Ordner wird dann nicht verwendet. Einen bestehenden Archivordner weder verschieben noch freigeben. Ein neuer Wurzelordner ist kein automatischer Umzug alter Archive.
 
