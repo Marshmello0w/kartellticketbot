@@ -4,6 +4,11 @@ const { encrypt } = require('../crypto');
 expose({
 	importTicket(stringified, guildId, categoryMap) {
 		const ticket = JSON.parse(stringified);
+		// Transport state belongs to this bot instance; backups never resend transcripts.
+		delete ticket.transcriptPending;
+		delete ticket.transcriptMessageId;
+		delete ticket.transcriptAttempts;
+		delete ticket.transcriptNextAttemptAt;
 
 		ticket.archivedChannels = {
 			create: ticket.archivedChannels.map(user => {

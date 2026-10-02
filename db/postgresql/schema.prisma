@@ -68,6 +68,7 @@ model ArchivedUser {
 }
 
 model Category {
+    textOverrides   Json     @default("{}")
     channelName     String
     claiming        Boolean    @default(false)
     createdAt       DateTime   @default(now())
@@ -111,6 +112,8 @@ model Feedback {
 }
 
 model Guild {
+    textOverrides   Json     @default("{}")
+    transcriptChannel String?
     autoClose     Int        @default(43200000)
     autoTag       Json       @default("[]")
     archive       Boolean    @default(true)
@@ -183,6 +186,10 @@ model Tag {
 }
 
 model Ticket {
+    transcriptPending Boolean @default(false)
+    transcriptMessageId String?
+    transcriptAttempts Int @default(0)
+    transcriptNextAttemptAt DateTime?
     archivedChannels    ArchivedChannel[]
     archivedMessages    ArchivedMessage[]
     archivedRoles       ArchivedRole[]

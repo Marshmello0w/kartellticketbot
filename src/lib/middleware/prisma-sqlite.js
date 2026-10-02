@@ -1,4 +1,5 @@
 const jsonFields = [
+	'textOverrides',
 	'pingRoles',
 	'requiredRoles',
 	'staffRoles',

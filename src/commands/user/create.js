@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { UserCommand } = require('@eartharoid/dbf');
 const { isStaff } = require('../../lib/users');
 const ExtendedEmbedBuilder = require('../../lib/embed');
@@ -39,7 +40,7 @@ module.exports = class CreateUserCommand extends UserCommand {
 			include: { categories: true },
 			where: { id: interaction.guild.id },
 		});
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 
 		if (!await isStaff(interaction.guild, interaction.user.id)) {
 			return await interaction.editReply({

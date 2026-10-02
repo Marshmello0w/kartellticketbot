@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('./support-texts');
 const { getCommandCache } = require('./commands');
 const { isStaff } = require('./users');
 const {
@@ -35,11 +36,14 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 	let marked = 0;
 
 	for (const guild of guilds) {
-		const getMessage = client.i18n.getLocale(guild.locale);
 		const closeCommand = getCommandCache(client, guild.id).find(c => c.name === 'close');
 		for (const ticket of guild.tickets) {
 			try {
 				processed++;
+				const getMessage = await getSupportMessages(client, {
+					guildId: guild.id,
+					categoryId: ticket.categoryId,
+				});
 				if (ticket.closeRequestedAt) {
 					if (!ticket.closeScheduledAt) continue;
 					const closeAt = ticket.closeScheduledAt.getTime();

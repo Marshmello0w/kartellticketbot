@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../../../../lib/support-texts');
 const {
 	ActionRowBuilder,
 	ButtonBuilder,
@@ -29,7 +30,10 @@ module.exports.post = fastify => ({
 			},
 			where: { id: guild.id },
 		});
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, {
+			guildId: guild.id,
+			categoryId: data.categories.length === 1 ? data.categories[0] : null,
+		});
 		const categories = data.categories.map(id => {
 			const category = settings.categories.find(c => c.id === id);
 			if (!category) throw new Error(`Invalid category: ${id}`);

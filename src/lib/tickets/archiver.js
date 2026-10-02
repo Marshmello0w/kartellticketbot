@@ -13,6 +13,7 @@ module.exports = class TicketArchiver {
 	constructor(client) {
 		/** @type {import("client")} */
 		this.client = client;
+		this.pending = new Map();
 	}
 
 	/** Add or update a message
@@ -21,7 +22,23 @@ module.exports = class TicketArchiver {
 	 * @param {boolean?} external
 	 * @returns {import("@prisma/client").ArchivedMessage|boolean}
 	 */
-	async saveMessage(ticketId, message, external = false) {
+	saveMessage(ticketId, message, external = false) {
+		const promise = this.saveMessageNow(ticketId, message, external);
+		if (!this.pending.has(ticketId)) this.pending.set(ticketId, new Set());
+		this.pending.get(ticketId).add(promise);
+		promise.finally(() => {
+			const entries = this.pending.get(ticketId);
+			entries?.delete(promise);
+			if (!entries?.size) this.pending.delete(ticketId);
+		}).catch(() => {});
+		return promise;
+	}
+
+	async flush(ticketId) {
+		while (this.pending.get(ticketId)?.size) await Promise.allSettled([...this.pending.get(ticketId)]);
+	}
+
+	async saveMessageNow(ticketId, message, external = false) {
 		if (process.env.OVERRIDE_ARCHIVE === 'false') return false;
 
 		if (!message.member) {

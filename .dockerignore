@@ -9,3 +9,11 @@
 !.npmrc
 !package.json
 !bun.lock
+
+# The portal is shipped prebuilt; frontend dependencies are not needed at runtime.
+!portal
+!portal/package.json
+!portal/build
+!portal/build/**
+portal/node_modules
+portal/.svelte-kit

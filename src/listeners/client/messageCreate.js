@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { Listener } = require('@eartharoid/dbf');
 const {
 	ActionRowBuilder,
@@ -30,7 +31,7 @@ module.exports = class extends Listener {
 	 * @param {import("discord.js").ButtonInteraction|import("discord.js").SelectMenuInteraction} interaction
 	 */
 	async useGuild(settings, interaction, topic) {
-		const getMessage = this.client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(this.client, { guildId: settings.id || settings.categories?.[0]?.guildId || interaction.guildId });
 		if (settings.categories.length === 0) {
 			interaction.update({
 				components: [],
@@ -101,6 +102,7 @@ module.exports = class extends Listener {
 			} else if (commonGuilds.size === 1) {
 				const settings = await client.prisma.guild.findUnique({
 					select: {
+						id: true,
 						categories: true,
 						errorColour: true,
 						locale: true,
@@ -108,7 +110,7 @@ module.exports = class extends Listener {
 					},
 					where: { id: commonGuilds.at(0).id },
 				});
-				const getMessage = client.i18n.getLocale(settings.locale);
+				const getMessage = await getSupportMessages(client, { guildId: settings.id || commonGuilds.at(0).id });
 				const sent = await message.reply({
 					components: [
 						new ActionRowBuilder()
@@ -165,6 +167,7 @@ module.exports = class extends Listener {
 					.then(async interaction => {
 						const settings = await client.prisma.guild.findUnique({
 							select: {
+								id: true,
 								categories: true,
 								errorColour: true,
 								locale: true,
@@ -182,7 +185,10 @@ module.exports = class extends Listener {
 		} else {
 			const settings = await client.prisma.guild.findUnique({ where: { id: message.guild.id } });
 			if (!settings) return;
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, {
+				guildId: settings.id,
+				ticketId: message.channel.id,
+			});
 			let ticket = await client.prisma.ticket.findUnique({ where: { id: message.channel.id } });
 
 			if (ticket) {

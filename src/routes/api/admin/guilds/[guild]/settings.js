@@ -1,3 +1,4 @@
+const { validateTranscriptChannel } = require('../../../../../lib/transcripts');
 const { logAdminEvent } = require('../../../../../lib/logging.js');
 const { Colors } = require('discord.js');
 
@@ -16,7 +17,9 @@ module.exports.get = fastify => ({
 
 module.exports.patch = fastify => ({
 	handler: async req => {
-		const data = req.body;
+		const data = { ...req.body };
+		if (data.transcriptChannel === '') data.transcriptChannel = null;
+		delete data.textOverrides;
 		if (Object.prototype.hasOwnProperty.call(data, 'id')) delete data.id;
 		if (Object.prototype.hasOwnProperty.call(data, 'createdAt')) delete data.createdAt;
 		const colours = ['errorColour', 'primaryColour', 'successColour'];
@@ -30,6 +33,15 @@ module.exports.patch = fastify => ({
 		const client = req.routeOptions.config.client;
 		const id = req.params.guild;
 		const original = await client.prisma.guild.findUnique({ where: { id } });
+		if (Object.hasOwn(data, 'transcriptChannel') || Object.hasOwn(data, 'logChannel')) {
+			const transcriptChannel = Object.hasOwn(data, 'transcriptChannel') ? data.transcriptChannel : original.transcriptChannel;
+			try {
+				await validateTranscriptChannel(client, id, transcriptChannel, Object.hasOwn(data, 'logChannel') ? data.logChannel : original.logChannel);
+			} catch (error) {
+				error.statusCode = 400;
+				throw error;
+			}
+		}
 		const settings = await client.prisma.guild.update({
 			data: data,
 			include: { categories: { select: { id: true } } },

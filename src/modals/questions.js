@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../lib/support-texts');
 const { Modal } = require('@eartharoid/dbf');
 const {
 	EmbedBuilder, MessageFlags,
@@ -85,7 +86,7 @@ module.exports = class QuestionsModal extends Modal {
 				select,
 				where: { id: interaction.channel.id },
 			});
-			const getMessage = client.i18n.getLocale(ticket.guild.locale);
+			const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 			if (topic) await interaction.channel.setTopic(`<@${ticket.createdById}> | ${topic}`);
 

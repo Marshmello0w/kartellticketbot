@@ -1,3 +1,4 @@
+const { deliverPendingTranscripts } = require('../../lib/transcripts');
 const {
 	fetchCommands, publishCommands,
 } = require('../../lib/commands');
@@ -121,6 +122,21 @@ module.exports = class extends Listener {
 			checkForUpdates(client);
 			setInterval(() => checkForUpdates(client), ms('1w'));
 		}
+
+		let sendingTranscripts = false;
+		const sendTranscripts = async () => {
+			if (sendingTranscripts) return;
+			sendingTranscripts = true;
+			try {
+				await deliverPendingTranscripts(client);
+			} catch (error) {
+				client.log.error(error);
+			} finally {
+				sendingTranscripts = false;
+			}
+		};
+		await sendTranscripts();
+		setInterval(sendTranscripts, ms('1m'));
 
 		if (process.env.PUBLIC_BOT === 'true') {
 			client.log.notice('Inactivity warnings and auto-close features are disabled');

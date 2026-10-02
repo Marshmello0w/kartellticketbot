@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType, MessageFlags,
@@ -50,7 +51,7 @@ module.exports = class MoveSlashCommand extends SlashCommand {
 
 		if (!ticket) {
 			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 			return await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -65,7 +66,7 @@ module.exports = class MoveSlashCommand extends SlashCommand {
 			});
 		}
 
-		const getMessage = client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
 			return await interaction.editReply({

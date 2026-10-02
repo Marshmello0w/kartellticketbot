@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../support-texts');
 const {
 	ActionRowBuilder,
 	EmbedBuilder,
@@ -26,7 +27,7 @@ module.exports = {
 			},
 			where: { id: interaction.guild.id },
 		});
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 		if (settings.categories.length === 0) {
 			interaction.reply({
 				components: [],

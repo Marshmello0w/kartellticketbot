@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ActionRowBuilder,
@@ -43,7 +44,7 @@ module.exports = class TopicSlashCommand extends SlashCommand {
 
 		if (!ticket) {
 			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 			return await interaction.reply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -58,7 +59,7 @@ module.exports = class TopicSlashCommand extends SlashCommand {
 			});
 		}
 
-		const getMessage = client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 		const field = new TextInputBuilder()
 			.setCustomId('topic')

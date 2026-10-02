@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../lib/support-texts');
 const { Button } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../lib/embed');
 const { isStaff } = require('../lib/users');
@@ -24,7 +25,7 @@ module.exports = class CloseButton extends Button {
 			await client.tickets.beforeRequestClose(interaction);
 		} else {
 			const ticket = await client.tickets.getTicket(interaction.channel.id, true); // true to override cache and load new feedback
-			const getMessage = client.i18n.getLocale(ticket.guild.locale);
+			const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 			const staff = await isStaff(interaction.guild, interaction.user.id);
 
 			if (id.expect === 'staff' && !staff) {
@@ -52,7 +53,7 @@ module.exports = class CloseButton extends Button {
 						ticket.category.enableFeedback &&
 						!ticket.feedback
 					) {
-						return await interaction.showModal(client.tickets.buildFeedbackModal(ticket.guild.locale, { next: 'acceptClose' }));
+						return await interaction.showModal(await client.tickets.buildFeedbackModal(ticket, { next: 'acceptClose' }));
 					} else {
 						await interaction.deferReply();
 						await client.tickets.acceptClose(interaction);

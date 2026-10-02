@@ -1,7 +1,5 @@
-const {
-	cleanCodeBlockContent,
-	EmbedBuilder,
-} = require('discord.js');
+const { cleanCodeBlockContent } = require('discord.js');
+const EmbedBuilder = require('./embed');
 const { diff: getDiff } = require('object-diffy');
 const ShortUniqueId = require('short-unique-id');
 

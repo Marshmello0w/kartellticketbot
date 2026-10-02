@@ -1,0 +1,11 @@
+ALTER TABLE `guilds` ADD COLUMN `textOverrides` JSON;
+ALTER TABLE `categories` ADD COLUMN `textOverrides` JSON;
+ALTER TABLE `guilds` ADD COLUMN `transcriptChannel` VARCHAR(19);
+ALTER TABLE `tickets` ADD COLUMN `transcriptPending` BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE `tickets` ADD COLUMN `transcriptMessageId` VARCHAR(19);
+ALTER TABLE `tickets` ADD COLUMN `transcriptAttempts` INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE `tickets` ADD COLUMN `transcriptNextAttemptAt` DATETIME(3);
+UPDATE `guilds` SET `textOverrides` = JSON_OBJECT();
+UPDATE `categories` SET `textOverrides` = JSON_OBJECT();
+ALTER TABLE `guilds` MODIFY `textOverrides` JSON NOT NULL;
+ALTER TABLE `categories` MODIFY `textOverrides` JSON NOT NULL;

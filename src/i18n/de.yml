@@ -423,6 +423,10 @@ modals:
     label: Thema
     placeholder: Worum geht es in diesem Ticket?
 ticket:
+  transcript:
+    title: "Transkript für Ticket #{number}"
+    creator: Erstellt von
+    automatic: Automatisch
   answers:
     no_value: '*Keine Antwort*'
   close:

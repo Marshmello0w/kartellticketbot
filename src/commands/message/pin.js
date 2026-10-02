@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { MessageCommand } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../../lib/embed');
 const { MessageFlags } = require('discord.js');
@@ -30,7 +31,7 @@ module.exports = class PinMessageCommand extends MessageCommand {
 
 		if (!ticket) {
 			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 			return await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -44,7 +45,7 @@ module.exports = class PinMessageCommand extends MessageCommand {
 			});
 		}
 
-		const getMessage = client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 		if (!interaction.targetMessage.pinnable) {
 			return await interaction.editReply({

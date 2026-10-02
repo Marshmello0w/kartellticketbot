@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType,
@@ -54,7 +55,7 @@ module.exports = class TransferSlashCommand extends SlashCommand {
 
 		if (!ticket) {
 			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 			return await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -68,6 +69,7 @@ module.exports = class TransferSlashCommand extends SlashCommand {
 			});
 		}
 
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
 		const from = ticket.createdById;
 
 		const channelName = ticket.category.channelName
@@ -112,7 +114,7 @@ module.exports = class TransferSlashCommand extends SlashCommand {
 			embeds: [
 				new EmbedBuilder()
 					.setColor(ticket.guild.primaryColour)
-					.setDescription(client.i18n.getMessage(ticket.guild.locale, `commands.slash.transfer.transferred${interaction.member.id !== from ? '_from' : ''}`, {
+					.setDescription(getMessage(`commands.slash.transfer.transferred${interaction.member.id !== from ? '_from' : ''}`, {
 						from: `<@${from}>`,
 						to: member.toString(),
 						user: interaction.user.toString(),

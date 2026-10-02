@@ -1,4 +1,5 @@
 const semver = require('semver');
+const { getSupportMessages } = require('./support-texts');
 const { short } = require('leeks.js');
 const ExtendedEmbedBuilder = require('./embed');
 const { version: currentVersion } = require('../../package.json');
@@ -58,7 +59,7 @@ module.exports = client => {
 				if (process.env.PUBLIC_BOT !== 'true') {
 					const guilds = await client.prisma.guild.findMany({ where: { logChannel: { not: null } } });
 					for (const guild of guilds) {
-						const getMessage = client.i18n.getLocale(guild.locale);
+						const getMessage = await getSupportMessages(client, { guildId: guild.id });
 						await client.channels.cache.get(guild.logChannel).send({
 							embeds: [
 								new ExtendedEmbedBuilder()

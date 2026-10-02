@@ -5,6 +5,7 @@
 	"description": "The most popular open-source ticket management bot for Discord.",
 	"main": "src/",
 	"scripts": {
+		"portal:build": "npm --prefix portal run build",
 		"db.dump": "node scripts/dump.mjs",
 		"db.prune": "node scripts/prune.mjs",
 		"db.restore": "node scripts/restore.mjs",

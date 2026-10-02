@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { getCommandCache } = require('../../lib/commands');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
@@ -49,7 +50,10 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 		const member = interaction.options.getMember('member', false) ?? interaction.member;
 		const ownOrOther = member.id === interaction.member.id ? 'own' : 'other';
 		const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, {
+			guildId: settings.id || interaction.guildId,
+			ticketId: interaction.channelId,
+		});
 
 		if (member.id !== interaction.member.id && !(await isStaff(interaction.guild, interaction.member.id))) {
 			return await interaction.editReply({

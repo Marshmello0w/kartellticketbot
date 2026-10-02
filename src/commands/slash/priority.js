@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const { ApplicationCommandOptionType } = require('discord.js');
 const ExtendedEmbedBuilder = require('../../lib/embed');
@@ -57,9 +58,15 @@ module.exports = class PrioritySlashCommand extends SlashCommand {
 		await interaction.deferReply();
 
 		const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, {
+			guildId: settings.id || interaction.guildId,
+			ticketId: interaction.channelId,
+		});
 		const ticket = await client.prisma.ticket.findUnique({
-			include: { category: { select: { channelName: true } } },
+			include: {
+				guild: true,
+				category: { select: { channelName: true } },
+			},
 			where: { id: interaction.channel.id },
 		});
 

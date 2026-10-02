@@ -439,6 +439,10 @@ modals:
     label: Topic
     placeholder: What is this ticket about?
 ticket:
+  transcript:
+    title: "Ticket #{number} transcript"
+    creator: Created by
+    automatic: Automatic
   answers:
     no_value: "*No response*"
   claimed: 🙌 {user} has claimed this ticket.

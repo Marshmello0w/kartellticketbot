@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../lib/support-texts');
 const { Button } = require('@eartharoid/dbf');
 const {
 	ActionRowBuilder,
@@ -34,7 +35,7 @@ module.exports = class EditButton extends Button {
 			where: { id: interaction.channel.id },
 		});
 
-		const getMessage = client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 		if (ticket.questionAnswers.length === 0) {
 			const field = new TextInputBuilder()

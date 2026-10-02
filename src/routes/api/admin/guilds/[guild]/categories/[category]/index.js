@@ -74,7 +74,8 @@ module.exports.patch = fastify => ({
 		const categoryId = Number(req.params.category);
 		/** @type {import('discord.js').Guild} */
 		const guild = client.guilds.cache.get(req.params.guild);
-		const data = req.body;
+		const data = { ...req.body };
+		delete data.textOverrides;
 
 		const select = {
 			channelName: true,

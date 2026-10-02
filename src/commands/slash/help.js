@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { getCommandCache } = require('../../lib/commands');
 const { SlashCommand } = require('@eartharoid/dbf');
 const { isStaff } = require('../../lib/users');
@@ -28,7 +29,10 @@ module.exports = class ClaimSlashCommand extends SlashCommand {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		const staff = await isStaff(interaction.guild, interaction.member.id);
 		const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-		const getMessage = client.i18n.getLocale(settings.locale);
+		const getMessage = await getSupportMessages(client, {
+			guildId: settings.id || interaction.guildId,
+			ticketId: interaction.channelId,
+		});
 		const commands = getCommandCache(client, interaction.guildId)
 			.filter(c => c.type === 1)
 			.map(c => `> </${c.name}:${c.id}>: ${c.description}`)

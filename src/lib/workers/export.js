@@ -3,6 +3,11 @@ const { decrypt } = require('../crypto');
 
 expose({
 	exportTicket(ticket) {
+		// Transport state belongs to this bot instance; backups never resend transcripts.
+		delete ticket.transcriptPending;
+		delete ticket.transcriptMessageId;
+		delete ticket.transcriptAttempts;
+		delete ticket.transcriptNextAttemptAt;
 		ticket.archivedMessages = ticket.archivedMessages.map(message => {
 			message.content &&= decrypt(message.content);
 			return message;

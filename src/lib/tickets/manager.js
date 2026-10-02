@@ -1,3 +1,5 @@
+const { deliverTranscript } = require('../transcripts');
+const { getSupportMessages } = require('../support-texts');
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable max-lines */
 const TicketArchiver = require('./archiver');
@@ -209,7 +211,7 @@ module.exports = class TicketManager {
 					locale: 'en-GB',
 				};
 			}
-			const getMessage = this.client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(this.client, { guildId: interaction.guildId });
 			return await interaction.reply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -227,7 +229,10 @@ module.exports = class TicketManager {
 		/** @type {import("discord.js").Guild} */
 		const guild = this.client.guilds.cache.get(category.guild.id);
 		const member = interaction.member ?? await guild.members.fetch(interaction.user.id);
-		const getMessage = this.client.i18n.getLocale(category.guild.locale);
+		const getMessage = await getSupportMessages(this.client, {
+			guildId: category.guildId,
+			categoryId: category.id,
+		});
 
 		const rlKey = `ratelimits/guild-user:${category.guildId}-${interaction.user.id}`;
 		const rl = await this.client.keyv.get(rlKey);
@@ -435,7 +440,10 @@ module.exports = class TicketManager {
 
 		/** @type {import("discord.js").Guild} */
 		const guild = this.client.guilds.cache.get(category.guild.id);
-		const getMessage = this.client.i18n.getLocale(category.guild.locale);
+		const getMessage = await getSupportMessages(this.client, {
+			guildId: category.guildId,
+			categoryId: category.id,
+		});
 		const creator = await guild.members.fetch(interaction.user.id);
 		const number = await this.getNextNumber(category.guild.id);
 		const channelName = category.channelName
@@ -862,7 +870,7 @@ module.exports = class TicketManager {
 			},
 			where: { id: interaction.channel.id },
 		});
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 
 		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
 			return await interaction.reply({
@@ -965,7 +973,7 @@ module.exports = class TicketManager {
 			},
 			where: { id: interaction.channel.id },
 		});
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 
 		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
 			return await interaction.reply({
@@ -1049,8 +1057,8 @@ module.exports = class TicketManager {
 		});
 	}
 
-	buildFeedbackModal(locale, id) {
-		const getMessage = this.client.i18n.getLocale(locale);
+	async buildFeedbackModal(ticket, id) {
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 		return new ModalBuilder()
 			.setCustomId(JSON.stringify({
 				action: 'feedback',
@@ -1094,15 +1102,11 @@ module.exports = class TicketManager {
 			const {
 				errorColour,
 				footer,
-				locale,
 			} = await this.client.prisma.guild.findUnique({
-				select: {
-					errorColour: true,
-					locale: true,
-				},
+				select: { errorColour: true },
 				where: { id: interaction.guild.id },
 			});
-			const getMessage = this.client.i18n.getLocale(locale);
+			const getMessage = await getSupportMessages(this.client, { guildId: interaction.guildId });
 			return await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -1116,7 +1120,7 @@ module.exports = class TicketManager {
 			});
 		}
 
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 		const staff = await isStaff(interaction.guild, interaction.user.id);
 		const reason = interaction.options?.getString('reason', false) || null; // ?. because it could be a button interaction
 
@@ -1136,7 +1140,7 @@ module.exports = class TicketManager {
 			ticket.category.enableFeedback &&
 			!ticket.feedback
 		) {
-			return await interaction.showModal(this.buildFeedbackModal(ticket.guild.locale, {
+			return await interaction.showModal(await this.buildFeedbackModal(ticket, {
 				next: 'requestClose',
 				reason, // known issue: a reason longer than a few words will cause an error due to 100 character custom_id limit
 			}));
@@ -1167,7 +1171,7 @@ module.exports = class TicketManager {
 	async requestClose(interaction, reason) {
 		// interaction could be command, button. or modal
 		const ticket = await this.getTicket(interaction.channel.id, true);
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 		const staff = interaction.user.id !== ticket.createdById && await isStaff(interaction.guild, interaction.user.id);
 		const closeButtonId = {
 			action: 'close',
@@ -1182,8 +1186,8 @@ module.exports = class TicketManager {
 
 		if (staff) {
 			embed.setDescription(
-				getMessage('ticket.close.staff_request.description', { requestedBy: interaction.user.toString() }) +
-				(ticket.guild.archive ? getMessage('ticket.close.staff_request.archived') : ''),
+				(getMessage('ticket.close.staff_request.description', { requestedBy: interaction.user.toString() }) +
+				(ticket.guild.archive ? getMessage('ticket.close.staff_request.archived') : '')).slice(0, 4096),
 			);
 		}
 
@@ -1230,7 +1234,7 @@ module.exports = class TicketManager {
 	 */
 	async acceptClose(interaction) {
 		const ticket = await this.getTicket(interaction.channel.id);
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 		await interaction.editReply({
 			embeds: [
 				new ExtendedEmbedBuilder({
@@ -1257,8 +1261,9 @@ module.exports = class TicketManager {
 	}) {
 		let ticket = await this.getTicket(ticketId, true);
 		if (!ticket || !ticket.open) return;
-		const getMessage = this.client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 
+		await this.archiver?.flush(ticketId);
 		const { _count: { archivedMessages } } = await this.client.prisma.ticket.findUnique({
 			select: { _count: { select: { archivedMessages: true } } },
 			where: { id: ticket.id },
@@ -1271,6 +1276,8 @@ module.exports = class TicketManager {
 			closeRequestedById: null,
 			closeRequestReason: null,
 			closeRequestMessageId: null,
+			transcriptPending: Boolean(ticket.guild.archive && ticket.guild.transcriptChannel && process.env.OVERRIDE_ARCHIVE !== 'false'),
+			transcriptNextAttemptAt: null,
 			closedAt: new Date(),
 			closedById: closedBy,
 			closedReason: reason && await crypto.queue(w => w.encrypt(reason)),
@@ -1323,7 +1330,7 @@ module.exports = class TicketManager {
 
 		if (channel?.deletable) {
 			const member = closedBy ? channel.guild.members.cache.get(closedBy) : null;
-			await channel.delete('Ticket closed' + (member ? ` by ${member.displayName}` : '') + reason ? `: ${reason}` : '');
+			await channel.delete('Ticket closed' + (member ? ` by ${member.displayName}` : '') + (reason ? `: ${reason}` : '')).catch(this.client.log.error);
 		}
 
 		const components = [];
@@ -1437,18 +1444,21 @@ module.exports = class TicketManager {
 		}
 		if (reason) fieldsArray.push(fields.reason);
 
-		logTicketEvent(this.client, {
+		await logTicketEvent(this.client, {
 			action: 'close',
-			payload: {
-				components,
-				fields: fieldsArray,
-			},
+			payload: { fields: fieldsArray },
 			target: {
 				id: ticket.id,
 				name: `${ticket.category.name} **#${ticket.number}**`,
 			},
 			userId: closedBy || this.client.user.id,
-		});
+		}).catch(this.client.log.error);
+
+		try {
+			await deliverTranscript(this.client, ticket.id);
+		} catch (error) {
+			this.client.log.error(error);
+		}
 
 	}
 };

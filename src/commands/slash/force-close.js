@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType,
@@ -63,7 +64,10 @@ module.exports = class ForceCloseSlashCommand extends SlashCommand {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
 		const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-		const getMessage = client.i18n.getLocale(settings.locale);
+		let getMessage = await getSupportMessages(client, {
+			guildId: settings.id || interaction.guildId,
+			ticketId: interaction.channelId,
+		});
 		let ticket;
 
 		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
@@ -103,6 +107,7 @@ module.exports = class ForceCloseSlashCommand extends SlashCommand {
 				});
 			}
 
+			getMessage = await getSupportMessages(client, { ticketId: ticket.id });
 			await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({

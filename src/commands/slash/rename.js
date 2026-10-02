@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('../../lib/support-texts');
 const { SlashCommand } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../../lib/embed');
 const {
@@ -54,7 +55,7 @@ module.exports = class RenameSlashCommand extends SlashCommand {
 		if (!ticket) {
 			// Fetch guild settings
 			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = client.i18n.getLocale(settings.locale);
+			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
 			return await interaction.editReply({
 				embeds: [
 					new ExtendedEmbedBuilder({
@@ -68,7 +69,7 @@ module.exports = class RenameSlashCommand extends SlashCommand {
 			});
 		}
 
-		const getMessage = client.i18n.getLocale(ticket.guild.locale);
+		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
 		// Check if the user has permission to rename the channel
 		if (

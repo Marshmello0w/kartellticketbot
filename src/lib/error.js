@@ -1,3 +1,4 @@
+const { getSupportMessages } = require('./support-texts');
 const { getSUID } = require('./logging');
 const {
 	EmbedBuilder,
@@ -32,14 +33,11 @@ module.exports.handleInteractionError = async event => {
 	}
 
 
-	let locale = null;
-	if (interaction.guild) {
-		locale = (await client.prisma.guild.findUnique({
-			select: { locale: true },
-			where: { id: interaction.guild.id },
-		})).locale;
-	}
-	const getMessage = client.i18n.getLocale(locale);
+
+	const getMessage = await getSupportMessages(client, {
+		guildId: interaction.guildId,
+		ticketId: interaction.channelId,
+	});
 
 	const data = {
 		components: [],
