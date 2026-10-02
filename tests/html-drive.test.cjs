@@ -160,6 +160,64 @@ test('SQLite: quota errors retain staged bytes and retries; closure survives; re
  await f.prisma.driveArchive.update({where:{id:f.ticket.id},data:{nextAttemptAt:null}});
  await archive.processArchive(f.client,f.ticket.id);assert.equal((await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}})).state,'ready');
 });
+test('SQLite: attachment downloads continue while both Drive upload slots are occupied',sqlite,async t=>{
+ const f=await fixture(t), downloaded=new Set();
+ let releaseUploads, finishDownloads;
+ const uploads=new Promise(resolve=>{releaseUploads=resolve});
+ const downloads=new Promise(resolve=>{finishDownloads=resolve});
+ const originalUpload=f.adapter.upload;
+ f.adapter.upload=async(...args)=>{await uploads;return originalUpload(...args)};
+ f.client.archiveFetch=async url=>{downloaded.add(url);if(downloaded.size===4)finishDownloads();return new Response(Buffer.from('img'))};
+ const content={attachments:[1,2,3].map(n=>({id:String(912222222222222220n+BigInt(n)),name:'pic-'+n+'.png',url:'https://cdn.discordapp.com/attachments/'+f.ticket.id+'/'+String(912222222222222220n+BigInt(n))+'/pic.png',size:3,contentType:'image/png'}))};
+ await archive.captureContent(f.client,await f.full(),content,'message');
+ const assets=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});
+ let timeout;
+ try{
+  await Promise.race([downloads,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Attachment downloads stalled behind Drive uploads')),1500)})]);
+  await archive.stageTicketAssets(f.client,f.ticket.id);
+  const saved=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});
+  assert.equal(saved.filter(row=>row.localReady||row.state==='ready').length,4);
+ }finally{
+  clearTimeout(timeout);releaseUploads();await Promise.all(assets.map(asset=>archive.processAsset(f.client,asset.id)));
+ }
+});
+test('SQLite: forced closure recovers final messages and stages files before deleting the channel, without waiting for Drive',sqlite,async t=>{
+ const f=await fixture(t),role={id:f.id,name:'Support',hexColor:'#ff9900'};
+ const guild=f.client.guilds.cache.get(f.id);Object.assign(guild,{id:f.id,roles:{everyone:role},iconURL:()=>null,members:{cache:new Discord.Collection(),fetch:async()=>({})}});
+ const user={id:f.userId,username:'User',globalName:'Nutzer',bot:false,discriminator:'0',displayAvatarURL:()=> 'https://cdn.discordapp.com/embed/avatars/0.png'};
+ const bot={...user,id:'bot',username:'KartelBot',bot:true};
+ const message=(author,id,extra)=>({id,guild,author,member:{guild,user:author,displayName:author.username,roles:{hoist:role},displayAvatarURL:author.displayAvatarURL},mentions:{channels:new Discord.Collection(),members:new Discord.Collection(),roles:new Discord.Collection()},attachments:new Discord.Collection(),components:[],embeds:[],content:'',createdAt:new Date(),reference:null,...extra});
+ const opening=message(bot,String(BigInt(f.ticket.id)+5n),{embeds:[new Discord.EmbedBuilder().setTitle('Welcome').setDescription('Support information')],components:[new Discord.ActionRowBuilder().addComponents(new Discord.ButtonBuilder().setCustomId('close').setStyle(4).setLabel('Schließen'))]});
+ const attachments=[1,2,3].map(n=>({id:String(913333333333333330n+BigInt(n)),name:'pic-'+n+'.png',url:'https://cdn.discordapp.com/attachments/'+f.ticket.id+'/'+String(913333333333333330n+BigInt(n))+'/pic.png',size:3,contentType:'image/png'}));
+ const response=message(user,String(BigInt(f.ticket.id)+6n),{content:'Final message',attachments:new Discord.Collection(attachments.map(a=>[a.id,a]))});
+ f.messages.set(opening.id,opening);f.messages.set(response.id,response);
+ let deleted=false, stagedAtDeletion,releaseUploads,timeout;
+ const uploads=new Promise(resolve=>{releaseUploads=resolve}),originalUpload=f.adapter.upload;
+ f.adapter.upload=async(...args)=>{await uploads;return originalUpload(...args)};
+ f.client.archiveFetch=async()=>new Response(deleted?null:Buffer.from('img'),{status:deleted?404:200});
+ const ticketChannel={id:f.ticket.id,guild,deletable:true,messages:{fetch:async()=>f.messages,fetchPinned:async()=>new Discord.Collection([[opening.id,opening]])},delete:async()=>{stagedAtDeletion=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});deleted=true}};
+ const fetchChannel=f.client.channels.fetch;
+ f.client.channels={cache:new Discord.Collection([[f.ticket.id,ticketChannel]]),fetch:async id=>id===f.ticket.id?ticketChannel:fetchChannel(id)};
+ const Archiver=load('src/lib/tickets/archiver.js',{'../threads':{pools}});
+ const Manager=load('src/lib/tickets/manager.js',{'../threads':{pools},'../stats':{},'./archiver':Archiver,'../ticket-presentation':{syncTicket:async()=>{},requestSync(){}},'../logging':{logTicketEvent:async()=>{}},'../transcripts':transcripts});
+ const manager=Object.create(Manager.prototype);manager.client=f.client;manager.$count={categories:{}};manager.archiver=new Archiver(f.client);
+ manager.getTicket=id=>f.prisma.ticket.findUnique({where:{id},include:{guild:true,category:true,feedback:true}});f.client.tickets=manager;
+ const closing=manager.finallyClose(f.ticket.id,{closedBy:f.userId});
+ try{
+  await Promise.race([closing,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Closure waited for Drive upload')),5000)})]);
+  assert.equal(deleted,true);assert.equal((await f.full()).open,false);assert.equal(f.files.size,0);
+  assert.equal(stagedAtDeletion.length,4);assert.ok(stagedAtDeletion.every(asset=>asset.localReady||asset.state==='ready'));
+  const document=await transcripts.renderTranscript(f.client,await f.full());
+  assert.match(document.transcript,/Welcome/);assert.match(document.transcript,/Schließen/);assert.match(document.transcript,/Final message/);
+ }finally{
+  clearTimeout(timeout);releaseUploads();await closing;
+  const assets=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});await Promise.all(assets.map(asset=>archive.processAsset(f.client,asset.id)));
+  await f.prisma.driveArchive.update({where:{id:f.ticket.id},data:{nextAttemptAt:null}});await archive.processArchive(f.client,f.ticket.id);
+ }
+ const zip=await archive.acquireZip(f.client,f.ticket.id,1024*1024),entries=await require('unzipper').Open.file(zip.path);
+ assert.ok(attachments.every(a=>entries.files.some(entry=>entry.path.endsWith(a.name))));
+ assert.doesNotMatch((await entries.files.find(entry=>entry.path==='transcript.html').buffer()).toString(),/src="https:/);await zip.release();
+});
 test('SQLite: unavailable bytes produce an explicitly incomplete ZIP and HTML',sqlite,async t=>{
  const f=await fixture(t);f.client.archiveFetch=async()=>new Response(null,{status:404});
  await archive.ensureArchive(f.client,await f.full());

@@ -17,22 +17,27 @@ const decrypt = value => require('./crypto').decrypt(value);
 
 const RETENTION = 90 * 86400000;
 const assetJobs = new Map();
+const sourceJobs = new Map();
 const archiveJobs = new Map();
 const ticks = new WeakSet();
 const sweepCursors = new WeakMap();
 const readers = new Map();
 const downloadJobs = new Map();
-let runningAssets = 0;
-const waitingAssets = [];
-async function assetSlot() {
-	if (runningAssets >= 2) await new Promise(resolve => waitingAssets.push(resolve));
-	else runningAssets++;
-	return () => {
-		const next = waitingAssets.shift();
-		if (next) next();
-		else runningAssets--;
+function concurrencyLimit(maximum) {
+	let running = 0;
+	const waiting = [];
+	return async () => {
+		if (running >= maximum) await new Promise(resolve => waiting.push(resolve));
+		else running++;
+		return () => {
+			const next = waiting.shift();
+			if (next) next();
+			else running--;
+		};
 	};
 }
+const assetSlot = concurrencyLimit(2);
+const sourceSlot = concurrencyLimit(2);
 const delay = attempts => attempts === 1 ? 60000 : attempts === 2 ? 300000 : 900000;
 const hash = value => createHash('sha256').update(value).digest('hex');
 const codes = new Set(['AUTH', 'QUOTA', 'PERMISSION', 'RATE_LIMIT', 'UPLOAD', 'DOWNLOAD', 'SOURCE', 'MISSING', 'FOLDER', 'NOT_PRIVATE', 'NOT_CONFIGURED', 'SESSION_EXPIRED', 'FILE_CONFLICT', 'DELETE', 'DELETE_REFUSED', 'UNSAFE_URL', 'EXPIRED', 'DISK', 'TICKET_REMOVED']);
@@ -180,7 +185,7 @@ async function captureContent(client, ticket, content, messageId) {
 				size: input.size || 0,
 			},
 		});
-		if (row.state === 'pending' && assetJobs.size < 2) processAsset(client, id).catch(() => {});
+		if (row.state === 'pending') processAsset(client, id).catch(() => {});
 	}
 }
 async function markClosed(client, ticket) {
@@ -249,9 +254,102 @@ async function downloadSource(client, asset, target) {
 	}
 	return bytes;
 }
+function stageAsset(client, id) {
+	if (sourceJobs.has(id)) return sourceJobs.get(id);
+	const job = (async () => {
+		const release = await sourceSlot();
+		try {
+			return await stageAssetNow(client, id);
+		} finally {
+			release();
+		}
+	})().finally(() => sourceJobs.delete(id));
+	sourceJobs.set(id, job);
+	return job;
+}
+async function stageAssetNow(client, id) {
+	const asset = await client.prisma.driveAsset.findUnique({
+		where: { id },
+		include: { archive: true },
+	});
+	if (!asset || ['deleting', 'deleted'].includes(asset.archive.state) || asset.archive.expiresAt && asset.archive.expiresAt <= new Date()) return false;
+	if (asset.state === 'ready') return true;
+	if (asset.state !== 'pending') return false;
+	const target = spool(asset.archiveId, asset.relativePath);
+	if (asset.localReady && fs.existsSync(target)) return true;
+	if (asset.nextAttemptAt && asset.nextAttemptAt > new Date()) return false;
+	const claim = await client.prisma.driveAsset.updateMany({
+		where: {
+			id,
+			state: 'pending',
+			AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] }, { OR: [{ leaseUntil: null }, { leaseUntil: { lte: new Date() } }] }],
+		},
+		data: { leaseUntil: new Date(Date.now() + 600000) },
+	});
+	if (!claim.count) return false;
+	try {
+		await prepare(asset.archiveId);
+		await fs.promises.mkdir(path.dirname(target), {
+			recursive: true,
+			mode: 0o700,
+		});
+		const size = await downloadSource(client, asset, target);
+		await client.prisma.driveAsset.update({
+			where: { id },
+			data: {
+				localReady: true,
+				size,
+			},
+		});
+		return true;
+	} catch (error) {
+		const attempts = asset.attempts + 1;
+		const code = codeOf(error);
+		await client.prisma.driveAsset.update({
+			where: { id },
+			data: {
+				state: code === 'MISSING' || code === 'UNSAFE_URL' ? 'missing' : 'pending',
+				errorCode: code,
+				attempts,
+				nextAttemptAt: code === 'MISSING' || code === 'UNSAFE_URL' ? null : new Date(Date.now() + Math.max(delay(attempts), error.retryAfter || 0)),
+			},
+		});
+		client.log.warn('Drive attachment %s: %s', id, code);
+		return false;
+	} finally {
+		await client.prisma.driveAsset.update({
+			where: { id },
+			data: { leaseUntil: null },
+		});
+	}
+}
+async function stageTicketAssets(client, ticketId) {
+	if (!client.prisma.driveAsset) return;
+	let cursor;
+	while (true) {
+		const assets = await client.prisma.driveAsset.findMany({
+			where: {
+				archiveId: ticketId,
+				state: 'pending',
+			},
+			select: { id: true },
+			orderBy: { id: 'asc' },
+			take: 100,
+			...(cursor ? {
+				cursor: { id: cursor },
+				skip: 1,
+			} : {}),
+		});
+		await Promise.allSettled(assets.map(asset => stageAsset(client, asset.id)));
+		if (assets.length < 100) break;
+		cursor = assets.at(-1).id;
+	}
+}
 function processAsset(client, id) {
 	if (assetJobs.has(id)) return assetJobs.get(id);
 	const job = (async () => {
+		// CDN downloads have their own slots, so slow Drive uploads cannot hold them up.
+		if (!await stageAsset(client, id)) return;
 		const release = await assetSlot();
 		try {
 			await processAssetNow(client, id);
@@ -279,23 +377,8 @@ async function processAssetNow(client, id) {
 	});
 	if (!claim.count) return;
 	try {
-		await prepare(asset.archiveId);
 		const target = spool(asset.archiveId, asset.relativePath);
-		await fs.promises.mkdir(path.dirname(target), {
-			recursive: true,
-			mode: 0o700,
-		});
-		if (!asset.localReady || !fs.existsSync(target)) {
-			const size = await downloadSource(client, asset, target);
-			asset = await client.prisma.driveAsset.update({
-				where: { id },
-				data: {
-					localReady: true,
-					size,
-				},
-				include: { archive: true },
-			});
-		}
+		if (!asset.localReady || !fs.existsSync(target)) throw new DriveError('DISK');
 		const drive = getDrive(client);
 		await drive.validateRoot();
 		const archive = await ensureFolder(client, asset.archive, drive);
@@ -983,6 +1066,7 @@ module.exports = {
 	processAsset,
 	sourceUrl,
 	spool,
+	stageTicketAssets,
 	tick,
 	uploadLimit,
 };

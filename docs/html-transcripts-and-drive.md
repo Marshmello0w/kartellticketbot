@@ -8,6 +8,8 @@ Automatische Transkripte im separaten Transkript-Kanal und manuelle Downloads ve
 
 Die Datei zeigt den Verlauf im dunklen Discord-Stil mit Namen, Rollenfarben, Avataren, Antworten, Markdown, Embeds und sichtbaren, inaktiven Buttons beziehungsweise Menüs. Fragen, Ticketdaten und vorhandenes Feedback stehen darüber. Externe Medien werden verlinkt. Discord-Dateien und Avatare können in dieser einzelnen HTML-Datei noch von den Discord-URLs abhängen.
 
+Nach dem Löschen eines Ticketkanals können dessen Anhangs-Links bereits vor dem Ablauf ihrer signierten URL nicht mehr erreichbar sein. Für dauerhaft sichtbare gesicherte Bilder das ZIP vollständig entpacken und die darin enthaltene `transcript.html` öffnen. Gibt es bei aktivierter Drive-Archivierung nur eine einzelne HTML-Datei, im Portal den Verbindungsstatus, ausstehende Aufgaben und Archivierungsfehler prüfen.
+
 ## Google einmalig verbinden
 
 1. In der [Google Cloud Console](https://console.cloud.google.com/) ein Projekt für das Ticketarchiv erstellen und die **Google Drive API** aktivieren.
@@ -25,10 +27,10 @@ Das Programm öffnet die Google-Anmeldung im Browser. Melde dich mit deinem eige
 
 Das Programm erstellt den privaten Drive-Ordner **Kartell Ticketarchive**. Es gibt keine Freigabe an das Supportteam und keine öffentlichen Drive-Links. Eine vorhandene Ausgabedatei wird nicht überschrieben.
 
-7. Die erzeugte `google-drive.json` geschützt auf den Bot-Host übertragen, beispielsweise nach `/AMP/node-server/app/user/google-drive.json`. In der Bot-Konfiguration setzen:
+7. Die erzeugte `google-drive.json` geschützt auf den Bot-Host in den Ordner `user` im Bot-Hauptordner übertragen. Dieser liegt neben `package.json` und `.env`; im AMP-Dateimanager ist der angezeigte Wurzelpfad nicht zwingend der absolute Linux-Pfad. In der Bot-Konfiguration setzen:
 
 ```dotenv
-GOOGLE_DRIVE_AUTH_FILE=/AMP/node-server/app/user/google-drive.json
+GOOGLE_DRIVE_AUTH_FILE=./user/google-drive.json
 ```
 
 Nur der Bot-Benutzer soll die Datei lesen können (unter Linux beispielsweise Dateirechte `600`, privates Verzeichnis `700`). Zugangsdaten niemals in GitHub, Discord, Transkripte oder Supportnachrichten kopieren. Das Arbeitsverzeichnis `user/drive-spool` ebenfalls nicht öffentlich über einen Webserver anbieten; der Bot legt es mit privaten Dateirechten an.
@@ -39,7 +41,7 @@ Bei einer widerrufenen Anmeldung das Programm erneut ausführen, in eine neue Au
 
 ## Ablauf und Downloads
 
-Anhänge, Discord-Avatare und benutzerdefinierte Emojis werden bei Eingang einer archivierten Nachricht in eine dauerhafte Warteschlange eingetragen, lokal zwischengespeichert und mit höchstens zwei gleichzeitigen Datei-Aufgaben nach Drive hochgeladen. Große Dateien werden in Abschnitten übertragen; Uploads können nach einem Neustart fortgesetzt werden. Erfolgreich gesicherte lokale Dateikopien werden entfernt.
+Anhänge, Discord-Avatare und benutzerdefinierte Emojis werden bei Eingang einer archivierten Nachricht in eine dauerhafte Warteschlange eingetragen und lokal zwischengespeichert. Höchstens zwei Downloads und zwei Drive-Uploads laufen gleichzeitig; langsame Uploads blockieren weitere Downloads nicht. Vor jeder Schließung wird der noch erreichbare Nachrichtenverlauf abgeglichen und auf die lokale Sicherung ausstehender Dateien gewartet. Ein Drive-Upload muss für den Ticketabschluss nicht fertig sein; Uploadfehler verhindern den Abschluss nicht. Große Dateien werden in Abschnitten übertragen; Uploads können nach einem Neustart fortgesetzt werden. Erfolgreich gesicherte lokale Dateikopien werden entfernt.
 
 Beim Start prüft der Bot bestehende offene Tickets auf verpasste Nachrichten und erreichbare Dateien. Schon geschlossene Tickets werden nicht automatisch nacharchiviert. Solange die Discord-Nachricht noch existiert, kann der Bot eine abgelaufene Anhangs-URL erneut abrufen. Bereits endgültig verlorene Dateien erscheinen als nicht verfügbar.
 

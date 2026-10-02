@@ -1,7 +1,9 @@
 const { pools } = require('../threads');
 
 const { crypto } = pools;
-const { captureContent } = require('../drive-archive');
+const {
+	captureContent, stageTicketAssets,
+} = require('../drive-archive');
 
 /**
  * Returns highest (roles.highest) hoisted role, or everyone
@@ -37,6 +39,41 @@ module.exports = class TicketArchiver {
 
 	async flush(ticketId) {
 		while (this.pending.get(ticketId)?.size) await Promise.allSettled([...this.pending.get(ticketId)]);
+	}
+
+	async prepareClose(ticketId) {
+		if (process.env.OVERRIDE_ARCHIVE === 'false') return;
+		const ticket = await this.client.prisma.ticket.findUnique({
+			where: { id: ticketId },
+			include: { guild: true },
+		});
+		if (!ticket?.guild.archive) return;
+		try {
+			const channel = this.client.channels.cache.get(ticketId) || await this.client.channels.fetch(ticketId);
+			if (channel?.id === ticketId) {
+				let before;
+				while (true) {
+					const messages = await channel.messages.fetch({
+						limit: 100,
+						...(before ? { before } : {}),
+						cache: false,
+					});
+					for (const message of messages.values()) await this.saveMessage(ticketId, message);
+					if (messages.size < 100) break;
+					const next = messages.last().id;
+					if (next === before) break;
+					before = next;
+				}
+			}
+		} catch (error) {
+			this.client.log.warn('Ticket %s: final message sync failed (%s)', ticketId, error.code || error.name);
+		}
+		await this.flush(ticketId);
+		if (ticket.guild.driveArchiveEnabled) {
+			await stageTicketAssets(this.client, ticketId).catch(error => {
+				this.client.log.warn('Ticket %s: final attachment backup failed (%s)', ticketId, error.code || error.name);
+			});
+		}
 	}
 
 	async saveMessageNow(ticketId, message, external = false) {

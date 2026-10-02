@@ -1120,6 +1120,7 @@ module.exports = class TicketManager {
 		if (ticket.guild.driveArchiveEnabled) await require('../drive-archive').ensureArchive(this.client, ticket).catch(() => this.client.log.warn('Drive archive registration failed for ticket %s', ticketId));
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
 
+		await this.archiver?.prepareClose?.(ticketId);
 		await this.archiver?.flush(ticketId);
 		const { _count: { archivedMessages } } = await this.client.prisma.ticket.findUnique({
 			select: { _count: { select: { archivedMessages: true } } },
