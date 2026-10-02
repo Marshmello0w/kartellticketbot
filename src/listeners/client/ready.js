@@ -4,6 +4,7 @@ const {
 	fetchCommands, publishCommands,
 } = require('../../lib/commands');
 const { Listener } = require('@eartharoid/dbf');
+const { Events } = require('discord.js');
 const ms = require('ms');
 const sync = require('../../lib/sync');
 const checkForUpdates = require('../../lib/updates');
@@ -19,7 +20,7 @@ module.exports = class extends Listener {
 		super(client, {
 			...options,
 			emitter: client,
-			event: 'ready',
+			event: Events.ClientReady,
 			once: true,
 		});
 	}

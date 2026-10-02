@@ -1,4 +1,4 @@
-const { FrameworkClient } = require('@eartharoid/dbf');
+const { ComponentClient } = require('./lib/component-routing');
 const {
 	GatewayIntentBits,
 	Partials,
@@ -14,7 +14,7 @@ const TicketManager = require('./lib/tickets/manager');
 const sqliteMiddleware = require('./lib/middleware/prisma-sqlite');
 const ms = require('ms');
 
-module.exports = class Client extends FrameworkClient {
+module.exports = class Client extends ComponentClient {
 	constructor() {
 		super(
 			{

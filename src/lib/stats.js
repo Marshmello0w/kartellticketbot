@@ -16,11 +16,7 @@ const getAverageTimes = closedTickets => stats.queue(async w => ({
 	avgResponseTime: await w.getAvgResponseTime(closedTickets),
 }));
 
-/**
- * Report stats to Houston
- * @param {import("../client")} client
- */
-async function sendToHouston(client) {
+async function createHoustonReport(client) {
 	client.log.info.cron('Preparing Houston report');
 	const guilds = await client.prisma.guild.findMany({
 		include: {
@@ -63,26 +59,33 @@ async function sendToHouston(client) {
 	if (delta !== 0) {
 		client.log.warn('%d guilds are not cached and were excluded from the stats report', delta);
 	}
+	return stats;
+}
 
+/**
+ * Report stats to Houston without allowing optional reporting to break the bot.
+ * @param {import("../client")} client
+ */
+async function sendToHouston(client) {
 	try {
+		const stats = await createHoustonReport(client);
 		client.log.verbose('Reporting to Houston:', stats);
 		const res = await fetch('https://stats.discordtickets.app/api/v4/houston', {
 			body: JSON.stringify(stats),
 			headers: { 'content-type': 'application/json' },
 			method: 'POST',
+			signal: AbortSignal.timeout(15000),
 		});
-		if (!res.ok) throw res;
-		client.log.success('Posted client stats');
-		client.log.debug(res);
-	} catch (res) {
-		client.log.warn('The following error is not important and can be safely ignored');
-		try {
-			const json = await res.json();
-			client.log.error('An error occurred whilst posting stats:', json);
-		} catch (error) {
-			client.log.error('An error occurred whilst posting stats and the response couldn\'t be parsed:', error.message);
+		if (!res.ok) {
+			client.log.warn('Could not post client stats (HTTP %d %s)', res.status, res.statusText);
+			await res.body?.cancel();
+			return;
 		}
-		client.log.debug(res);
+		client.log.success('Posted client stats');
+		await res.body?.cancel();
+	} catch (error) {
+		client.log.warn('Could not post client stats: %s', error?.cause?.message || error?.message || String(error));
+		client.log.debug(error);
 	}
 };
 
