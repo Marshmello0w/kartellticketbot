@@ -1,3 +1,6 @@
+const {
+	fetchCommands, publishCommands,
+} = require('../../lib/commands');
 const { Listener } = require('@eartharoid/dbf');
 const ms = require('ms');
 const sync = require('../../lib/sync');
@@ -32,11 +35,15 @@ module.exports = class extends Listener {
 		// fill cache
 		await sync(client);
 
-		if (process.env.PUBLISH_COMMANDS === 'true') {
-			client.log.info('Automatically publishing commands...');
-			client.commands.publish()
-				.then(commands => client.log.success('Published %d commands', commands?.size))
-				.catch(client.log.error);
+		if (process.env.PUBLISH_COMMANDS !== 'false') {
+			client.log.info('Publishing commands to guilds...');
+			try {
+				await publishCommands(client);
+			} catch (error) {
+				client.log.error(error);
+			}
+		} else {
+			client.log.notice('Automatic command registration disabled (PUBLISH_COMMANDS=false). Use commands publish to register manually.');
 		}
 
 		await client.application.fetch();
@@ -47,7 +54,7 @@ module.exports = class extends Listener {
 		}
 
 		// commands are not cached automatically
-		await client.application.commands.fetch();
+		await fetchCommands(client);
 
 		// presence/activity
 		if (client.config.presence.activities?.length > 0) {

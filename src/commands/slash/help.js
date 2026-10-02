@@ -1,3 +1,4 @@
+const { getCommandCache } = require('../../lib/commands');
 const { SlashCommand } = require('@eartharoid/dbf');
 const { isStaff } = require('../../lib/users');
 const ExtendedEmbedBuilder = require('../../lib/embed');
@@ -28,11 +29,11 @@ module.exports = class ClaimSlashCommand extends SlashCommand {
 		const staff = await isStaff(interaction.guild, interaction.member.id);
 		const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
 		const getMessage = client.i18n.getLocale(settings.locale);
-		const commands = client.application.commands.cache
+		const commands = getCommandCache(client, interaction.guildId)
 			.filter(c => c.type === 1)
 			.map(c => `> </${c.name}:${c.id}>: ${c.description}`)
 			.join('\n');
-		const newCommand = client.application.commands.cache.find(c => c.name === 'new');
+		const newCommand = getCommandCache(client, interaction.guildId).find(c => c.name === 'new');
 		const fields = [
 			{
 				name: getMessage('commands.slash.help.response.commands'),

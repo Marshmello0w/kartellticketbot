@@ -1,3 +1,4 @@
+const { getCommandCache } = require('./commands');
 const { isStaff } = require('./users');
 const {
 	ActionRowBuilder,
@@ -8,7 +9,6 @@ const ExtendedEmbedBuilder = require('./embed');
 
 module.exports = async function handleStaleTickets(client, staleInterval) {
 	client.log.info.cron('Handling stale tickets');
-	const closeCommand = client.application.commands.cache.find(c => c.name === 'close');
 	const guilds = await client.prisma.guild.findMany({
 		include: {
 			tickets: {
@@ -36,6 +36,7 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 
 	for (const guild of guilds) {
 		const getMessage = client.i18n.getLocale(guild.locale);
+		const closeCommand = getCommandCache(client, guild.id).find(c => c.name === 'close');
 		for (const ticket of guild.tickets) {
 			try {
 				processed++;
@@ -107,7 +108,7 @@ module.exports = async function handleStaleTickets(client, staleInterval) {
 								.setColor(guild.primaryColour)
 								.setTitle(getMessage('ticket.inactive.title'))
 								.setDescription(getMessage('ticket.inactive.description', {
-									close: `</${closeCommand.name}:${closeCommand.id}>`,
+									close: closeCommand ? `</${closeCommand.name}:${closeCommand.id}>` : '/close',
 									timestamp: Math.floor((ticket.lastMessageAt || ticket.createdAt).getTime() / 1000),
 								})),
 						],

@@ -20,6 +20,7 @@ const env = {
 	DISCORD_SECRET: '',
 	DISCORD_TOKEN: '',
 	ENCRYPTION_KEY: randomBytes(24).toString('hex'),
+	GUILD_ID: '', // optional: otherwise register in every connected guild
 	HTTP_EXTERNAL: 'http://127.0.0.1:8169',
 	HTTP_HOST: '0.0.0.0',
 	HTTP_INTERNAL: '',
@@ -29,7 +30,7 @@ const env = {
 	NODE_ENV: 'production', // not bot-specific
 	OVERRIDE_ARCHIVE: '',
 	PUBLIC_BOT: false,
-	PUBLISH_COMMANDS: false,
+	PUBLISH_COMMANDS: true,
 	SUPER: '319467558166069248',
 };
 

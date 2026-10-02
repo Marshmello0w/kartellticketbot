@@ -13,7 +13,7 @@ function load(file, dependencies) {
 }
 const crypto = { queue: async callback => callback({ encrypt: x => 'encrypted:' + x, decrypt: x => x.slice(10) }) };
 const Manager = load('src/lib/tickets/manager.js', { '../threads': { pools: { crypto } } });
-const handle = load('src/lib/stale.js', {});
+const handle = load('src/lib/stale.js', { './commands': { getCommandCache: client => client.application.commands.cache } });
 const fields = ['closeRequestedAt', 'closeScheduledAt', 'closeRequestedById', 'closeRequestReason', 'closeRequestMessageId'];
 
 function fixture(ticket, current = ticket) {

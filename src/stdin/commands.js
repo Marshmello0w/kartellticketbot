@@ -1,3 +1,4 @@
+const { publishCommands } = require('../lib/commands');
 const { StdinCommand } = require('@eartharoid/dbf');
 const { inspect } = require('util');
 
@@ -12,8 +13,8 @@ module.exports = class Commands extends StdinCommand {
 	async run(args) {
 		switch (args[0]) {
 		case 'publish': {
-			this.client.commands.publish()
-				.then(commands => this.client.log.success('Published %d commands', commands?.size))
+			await publishCommands(this.client, args[1])
+				.then(commands => this.client.log.success('Published %d commands', commands))
 				.catch(error => {
 					this.client.log.warn('Failed to publish commands');
 					this.client.log.error(error);
@@ -23,7 +24,7 @@ module.exports = class Commands extends StdinCommand {
 		}
 		default: {
 			this.client.log.info('subcommands: \n' + [
-				'> commands publish',
+				'> commands publish [guild-id]',
 			].join('\n'));
 		}
 		}

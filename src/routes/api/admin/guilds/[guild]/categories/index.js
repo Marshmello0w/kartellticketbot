@@ -1,3 +1,4 @@
+const { getCommandCache } = require('../../../../../../lib/commands');
 const { logAdminEvent } = require('../../../../../../lib/logging');
 const { updateStaffRoles } = require('../../../../../../lib/users');
 const emoji = require('node-emoji');
@@ -133,7 +134,7 @@ module.exports.post = fastify => ({
 				'release',
 			].map(name =>
 				client.application.commands.permissions.set({
-					command: client.application.commands.cache.find(cmd => cmd.name === name),
+					command: getCommandCache(client, guild.id).find(cmd => cmd.name === name),
 					guild,
 					permissions: [
 						{

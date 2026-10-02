@@ -1,3 +1,4 @@
+const { getCommandCache } = require('../../lib/commands');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType,
@@ -43,7 +44,7 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 		const client = this.client;
 
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-		await client.application.commands.fetch();
+		await interaction.guild.commands.fetch();
 
 		const member = interaction.options.getMember('member', false) ?? interaction.member;
 		const ownOrOther = member.id === interaction.member.id ? 'own' : 'other';
@@ -133,7 +134,7 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 		}
 
 		if (closed.length === 0) {
-			const newCommand = client.application.commands.cache.find(c => c.name === 'new');
+			const newCommand = getCommandCache(client, interaction.guildId).find(c => c.name === 'new');
 			fields.push({
 				name: getMessage('commands.slash.tickets.response.fields.closed.name'),
 				value: getMessage(`commands.slash.tickets.response.fields.closed.none.${ownOrOther}`, {
@@ -168,7 +169,7 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 			.setFields(fields);
 
 		if (settings.archive && process.env.OVERRIDE_ARCHIVE !== 'false') {
-			const transcriptCommand = client.application.commands.cache.find(c => c.name === 'transcript');
+			const transcriptCommand = getCommandCache(client, interaction.guildId).find(c => c.name === 'transcript');
 			embed.setDescription(getMessage('commands.slash.tickets.response.description', { transcript: `</${transcriptCommand.name}:${transcriptCommand.id}>` }));
 		}
 
