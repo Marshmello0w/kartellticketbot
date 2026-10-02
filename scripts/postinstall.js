@@ -2,13 +2,12 @@
 require('dotenv').config();
 const fs = require('fs-extra');
 const util = require('util');
-const exec = util.promisify(require('child_process').exec);
+const execFile = util.promisify(require('child_process').execFile);
 const { short } = require('leeks.js');
 const {
 	resolve, join,
 } = require('path');
 
-const fallback = { prisma: './node_modules/prisma/build/index.js' };
 
 function pathify(path) {
 	return resolve(__dirname, '../', path);
@@ -18,20 +17,13 @@ function log(...strings) {
 	console.log(short('&9[postinstall]&r'), ...strings);
 }
 
-async function npx(cmd) {
-	const parts = cmd.split(' ');
-	// fallback for environments with no symlink/npx support (PebbleHost)
-	if (!fs.existsSync(pathify(`./node_modules/.bin/${parts[0]}`))) {
-		const x = parts.shift();
-		cmd = 'node ' + fallback[x] + ' ' + parts.join(' ');
-	} else {
-		cmd = 'npx ' + cmd;
-	}
-	log(`> ${cmd}`);
+async function prisma(...args) {
+	log('> prisma ' + args.join(' '));
 	const {
-		stderr,
-		stdout,
-	} = await exec(cmd, { cwd: pathify('./') }); // { env } = process.env
+		stderr, stdout,
+	} = await execFile(process.execPath, [
+		pathify('node_modules/prisma/build/index.js'), ...args,
+	], { cwd: pathify('./') });
 	if (stdout) console.log(stdout.toString());
 	if (stderr) console.log(stderr.toString());
 }
@@ -49,14 +41,8 @@ if (!providers.includes(provider)) throw new Error(`DB_PROVIDER must be one of: 
 log(`provider=${provider}`);
 log(`copying ${provider} schema & migrations`);
 
-if (fs.existsSync(pathify('./prisma'))) {
-	fs.rmSync('./prisma', {
-		force: true,
-		recursive: true,
-	});
-} else {
-	fs.mkdirSync(pathify('./prisma'));
-}
+// Keep database files in prisma/ intact; only overwrite schema/migration files.
+fs.ensureDirSync(pathify('./prisma'));
 fs.copySync(pathify(`./db/${provider}`), pathify('./prisma')); // copy schema & migrations
 
 if (provider === 'sqlite' && !process.env.DB_CONNECTION_URL) {
@@ -65,6 +51,9 @@ if (provider === 'sqlite' && !process.env.DB_CONNECTION_URL) {
 }
 
 (async () => {
-	await npx('prisma generate');
-	await npx('prisma migrate deploy');
-})();
+	await prisma('migrate', 'deploy');
+	await prisma('generate');
+})().catch(error => {
+	console.error(error);
+	process.exitCode = 1;
+});
