@@ -31,7 +31,11 @@ function flatten(object, prefix = '', result = {}) {
 function getLimit(key) {
 	if (key.startsWith('buttons.')) return 80;
 	if (key.startsWith('modals.')) return key.endsWith('.placeholder') ? 100 : 45;
+	if (key.startsWith('menus.support.options.')) return 100;
 	if (key.startsWith('menus.')) return 150;
+	if (key === 'ticket.support.deadline.value') return 1024;
+	if (key.startsWith('ticket.support.overview.') || key.startsWith('ticket.support.status.')) return 256;
+	if (key.startsWith('ticket.support.')) return key.endsWith('.name') ? 256 : 2000;
 	if (key === 'ticket.opening_message.content') return 2000;
 	if (key === 'ticket.answers.no_value') return 1024;
 	if (key.startsWith('commands.slash.help.response.links.') && !key.endsWith('.links')) return 150;

@@ -14,7 +14,7 @@ function load(file, dependencies) {
  return module.exports;
 }
 const crypto = { queue: async callback => callback({ encrypt: x => 'encrypted:' + x, decrypt: x => x.slice(10) }) };
-const Manager = load('src/lib/tickets/manager.js', { '../threads': { pools: { crypto } }, '../support-texts': { getSupportMessages: async client => client.i18n?.getLocale?.() || (() => '') }, '../transcripts': { deliverTranscript: async () => {} } });
+const Manager = load('src/lib/tickets/manager.js', { '../ticket-presentation': { syncTicket: async () => {}, requestSync() {}, participantSide: async () => "USER" }, '../threads': { pools: { crypto } }, '../support-texts': { getSupportMessages: async client => client.i18n?.getLocale?.() || (() => '') }, '../transcripts': { deliverTranscript: async () => {} } });
 const handle = load('src/lib/stale.js', { './commands': { getCommandCache: client => client.application.commands.cache }, './support-texts': { getSupportMessages: async client => client.i18n.getLocale() } });
 
 test('SQLite: migration, restart, cancellation and atomic closing claim', { skip: !url }, async () => {

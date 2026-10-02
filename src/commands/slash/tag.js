@@ -1,3 +1,4 @@
+const { recordParticipant } = require('../../lib/ticket-presentation');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType, MessageFlags,
@@ -49,7 +50,7 @@ module.exports = class TagSlashCommand extends SlashCommand {
 			where: { id: interaction.options.getInteger('tag', true) },
 		});
 
-		await interaction.editReply({
+		const sent = await interaction.editReply({
 			allowedMentions: { users: user ? [user.id]: [] },
 			content: user?.toString(),
 			embeds: [
@@ -58,5 +59,6 @@ module.exports = class TagSlashCommand extends SlashCommand {
 					.setDescription(tag.content),
 			],
 		});
+		if (user && tag.guild.id === interaction.guildId) await recordParticipant(client, interaction.channelId, interaction.user.id, sent?.createdAt || new Date(), sent?.id || null);
 	}
 };

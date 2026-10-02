@@ -1,3 +1,4 @@
+const { recordParticipant } = require('../../lib/ticket-presentation');
 const { getSupportMessages } = require('../../lib/support-texts');
 const { Listener } = require('@eartharoid/dbf');
 const {
@@ -214,27 +215,19 @@ module.exports = class extends Listener {
 					}).catch(client.log.error);
 
 					// set first and last message timestamps
-					const pendingMessageId = ticket.closeRequestMessageId;
-					const data = {
-						lastMessageAt: new Date(),
-						closeRequestedAt: null,
-						closeScheduledAt: null,
-						closeRequestedById: null,
-						closeRequestReason: null,
-						closeRequestMessageId: null,
-					};
-					if (
-						ticket.firstResponseAt === null &&
-						await isStaff(message.guild, message.author.id)
-					) data.firstResponseAt = new Date();
-					ticket = await client.prisma.ticket.update({
-						data,
-						where: { id: ticket.id },
-					});
-
-					// The message update atomically cancelled any pending closure.
-					if (pendingMessageId) {
-						await message.channel.messages.delete(pendingMessageId).catch(client.log.error);
+					if (!message.system && !message.webhookId) {
+						await recordParticipant(client, ticket.id, message.author.id, message.createdAt, message.id);
+						if (ticket.firstResponseAt === null && await isStaff(message.guild, message.author.id)) {
+							await client.prisma.ticket.updateMany({
+								where: {
+									id: ticket.id,
+									open: true,
+									firstResponseAt: null,
+								},
+								data: { firstResponseAt: message.createdAt },
+							});
+						}
+						ticket = await client.prisma.ticket.findUnique({ where: { id: ticket.id } });
 					}
 				}
 

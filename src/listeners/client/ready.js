@@ -1,3 +1,4 @@
+const { refreshPresentations } = require('../../lib/ticket-presentation');
 const { deliverPendingTranscripts } = require('../../lib/transcripts');
 const {
 	fetchCommands, publishCommands,
@@ -111,6 +112,21 @@ module.exports = class extends Listener {
 		} else {
 			client.log.info('Presence activities are disabled');
 		}
+
+		let refreshingTickets = false;
+		const refreshTickets = async startup => {
+			if (refreshingTickets) return;
+			refreshingTickets = true;
+			try {
+				await refreshPresentations(client, startup);
+			} catch (error) {
+				client.log.error(error);
+			} finally {
+				refreshingTickets = false;
+			}
+		};
+		refreshTickets(true);
+		setInterval(() => refreshTickets(false), 30000);
 
 		// stats posting
 		if (client.config.stats) {

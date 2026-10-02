@@ -10,7 +10,8 @@
  let saving = $state(false);
  let modified = $state(false);
  const names = { buttons: 'Buttons', text: 'Beschriftung', close: 'Schließen', accept_close_request: 'Schließung akzeptieren', reject_close_request: 'Schließung ablehnen', claim: 'Übernehmen', unclaim: 'Freigeben', edit: 'Bearbeiten', create: 'Ticket erstellen', cancel: 'Abbrechen', transcript: 'Transkript', confirm_open: 'Ticket bestätigen', ticket: 'Ticket', dm: 'Direktnachricht', modals: 'Formular', menus: 'Auswahl', misc: 'Hinweis', commands: 'Command', slash: '', message: '', user: '', title: 'Überschrift', description: 'Nachricht', fields: '', name: 'Bezeichnung', value: 'Inhalt', label: 'Beschriftung', placeholder: 'Eingabehinweis', staff_request: 'Anfrage des Teams', user_request: 'Anfrage des Nutzers', closed: 'Geschlossen', closing_soon: 'Baldige Schließung', inactive: 'Inaktivität', feedback: 'Feedback', rating: 'Bewertung', comment: 'Kommentar', created: 'Erstellt', offline: 'Team offline', working_hours: 'Supportzeiten', forbidden: 'Keine Berechtigung', not_staff: 'Kein Teammitglied', success: 'Bestätigung', wait_for_user: 'Auf Nutzer warten', wait_for_staff: 'Auf Team warten', rejected: 'Abgelehnt', topic: 'Thema', answers: 'Antworten', opening_message: 'Begrüßung', released: 'Freigegeben', claimed: 'Übernommen', response: 'Antwort', no_value: 'Kein Inhalt', edited: 'Bearbeitet', references_message: 'Nachrichtenverweis', references_ticket: 'Ticketverweis' };
- const label = key => key.split('.').map(part => names[part] ?? part.replaceAll('_', ' ')).filter(Boolean).join(' · ');
+ const supportNames = { support: 'Support-Aktionen', open_ticket: 'Ticket öffnen', support_previous: 'Vorherige Seite', support_next: 'Nächste Seite', options: 'Aktionen', actions: 'Menüüberschrift', saved: 'Bestätigung', deadline: 'Schließfrist', status: 'Antwortstatus', active: 'Aktiv', staff: 'Wartet auf Support', overview: 'Ticket-Übersicht', creator: 'Ersteller', assigned: 'Zuständiger Supporter', unassigned: 'Ohne Supporter', no_priority: 'Ohne Priorität', priority: 'Priorität', activity: 'Letzte Aktivität', release: 'Freigeben', handoff: 'Supporter-Übergabe', move: 'Kategorie wechseln', errors: 'Fehlermeldungen', target: 'Ungültiger Supporter', changed: 'Ticket inzwischen geändert', invalid: 'Ungültige Auswahl', category: 'Zielkategorie', full: 'Kategorie voll', failed: 'Aktion fehlgeschlagen' };
+ const label = key => key.split('.').map(part => key.startsWith('ticket.support.') && part === 'user' ? 'Wartet auf Nutzer' : supportNames[part] ?? names[part] ?? part.replaceAll('_', ' ')).filter(Boolean).join(' · ');
  const inherited = field => data.inherited[field.key] ?? field.defaultValue;
  const value = field => overrides[field.key] ?? inherited(field);
  const groups = [...new Set(data.catalog.map(field => field.group))];
@@ -22,7 +23,7 @@
  }
  function reset(field) { delete overrides[field.key]; modified = true; notice = ''; }
  function preview(text) {
-  return text.replace(/\{\{?\s*([\w.:-]+)\s*\}\}?/g, (_, name) => ({ user: '@Nutzer', requestedBy: '@Team', channel: '#ticket-42', number: '42', timestamp: '1790935200', time: '12 Stunden', command: '/new', url: 'https://example.com/settings' }[name] || `[${name}]`)).replace(/%d/g, '2').replace(/%s/g, 'Beispiel');
+  return text.replace(/\{\{?\s*([\w.:-]+)\s*\}\}?/g, (_, name) => ({ user: '@Nutzer', requestedBy: '@Team', channel: '#ticket-42', number: '42', category: 'English', absolute: 'Freitag, 2. Oktober 2026, 20:00', relative: 'in 12 Stunden', timestamp: '1790935200', time: '12 Stunden', command: '/new', url: 'https://example.com/settings' }[name] || `[${name}]`)).replace(/%d/g, '2').replace(/%s/g, 'Beispiel');
  }
  async function save() {
   saving = true; error = ''; notice = '';

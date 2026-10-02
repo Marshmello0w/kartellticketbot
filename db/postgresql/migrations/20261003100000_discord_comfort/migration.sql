@@ -1,0 +1,10 @@
+ALTER TABLE "guilds" ADD COLUMN "ticketOverviewChannel" TEXT;
+ALTER TABLE "guilds" ADD COLUMN "automaticTicketStatus" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "tickets" ADD COLUMN "channelBaseName" TEXT;
+ALTER TABLE "tickets" ADD COLUMN "lastParticipantSide" TEXT;
+ALTER TABLE "tickets" ADD COLUMN "lastParticipantMessageId" TEXT;
+ALTER TABLE "tickets" ADD COLUMN "overviewChannelId" TEXT;
+ALTER TABLE "tickets" ADD COLUMN "overviewMessageId" TEXT;
+ALTER TABLE "tickets" ADD COLUMN "lastParticipantAt" TIMESTAMP(3);
+ALTER TABLE "tickets" ADD COLUMN "presentationAttempts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "tickets" ADD COLUMN "presentationNextAttemptAt" TIMESTAMP(3);

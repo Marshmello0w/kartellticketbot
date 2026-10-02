@@ -112,6 +112,8 @@ model Feedback {
 }
 
 model Guild {
+    ticketOverviewChannel String?
+    automaticTicketStatus Boolean @default(true)
     textOverrides   String     @default("{}")
     transcriptChannel String?
     autoClose     Int        @default(43200000)
@@ -186,6 +188,14 @@ model Tag {
 }
 
 model Ticket {
+    channelBaseName String?
+    lastParticipantSide String?
+    lastParticipantAt DateTime?
+    lastParticipantMessageId String?
+    overviewChannelId String?
+    overviewMessageId String?
+    presentationAttempts Int @default(0)
+    presentationNextAttemptAt DateTime?
     transcriptPending Boolean @default(false)
     transcriptMessageId String?
     transcriptAttempts Int @default(0)

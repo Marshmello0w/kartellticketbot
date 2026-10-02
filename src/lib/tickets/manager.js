@@ -1,6 +1,10 @@
+const {
+	requestSync, syncTicket, participantSide,
+} = require('../ticket-presentation');
+const { performAction } = require('../ticket-actions');
 const { deliverTranscript } = require('../transcripts');
 const { getSupportMessages } = require('../support-texts');
-/* eslint-disable no-underscore-dangle */
+
 /* eslint-disable max-lines */
 const TicketArchiver = require('./archiver');
 const {
@@ -55,13 +59,18 @@ module.exports = class TicketManager {
 
 	async scheduleClose(ticket, message, closedBy, reason) {
 		const now = new Date();
-		await this.client.prisma.ticket.updateMany({
+		const result = await this.client.prisma.ticket.updateMany({
 			data: {
 				closeRequestedAt: now,
 				closeScheduledAt: ticket.guild.autoClose ? new Date(now.getTime() + ticket.guild.autoClose) : null,
 				closeRequestedById: closedBy || null,
 				closeRequestReason: reason ? await crypto.queue(w => w.encrypt(reason)) : null,
 				closeRequestMessageId: message.id,
+				...(closedBy ? {
+					lastParticipantSide: await participantSide(this.client, ticket, closedBy),
+					lastParticipantAt: now,
+					lastParticipantMessageId: message.id,
+				} : {}),
 			},
 			where: {
 				id: ticket.id,
@@ -69,6 +78,8 @@ module.exports = class TicketManager {
 				lastMessageAt: ticket.lastMessageAt,
 			},
 		});
+		if (result.count) await syncTicket(this.client, ticket.id);
+		else await message.delete?.().catch(this.client.log.error);
 	}
 
 	async cancelClose(ticketId) {
@@ -589,6 +600,11 @@ module.exports = class TicketManager {
 			);
 		}
 
+		components.addComponents(new ButtonBuilder().setCustomId(JSON.stringify({
+			action: 'support',
+			ticket: channel.id,
+		})).setStyle(ButtonStyle.Secondary).setEmoji('🛠️').setLabel(getMessage('buttons.support.text')));
+
 		const pings = category.pingRoles.map(r => `<@&${r}>`).join(' ');
 
 		const sent = await channel.send({
@@ -740,7 +756,9 @@ module.exports = class TicketManager {
 		});
 
 		try {
+			data.channelBaseName = channel.name;
 			const ticket = await this.client.prisma.ticket.create({ data });
+			requestSync(this.client, ticket.id);
 			this.$count.categories[categoryId].total++;
 			this.$count.categories[categoryId][creator.id]++;
 
@@ -862,199 +880,37 @@ module.exports = class TicketManager {
 	 * @param {import("discord.js").ChatInputCommandInteraction|import("discord.js").ButtonInteraction} interaction
 	 */
 	async claim(interaction) {
-		const ticket = await this.client.prisma.ticket.findUnique({
-			include: {
-				_count: { select: { questionAnswers: true } },
-				category: true,
-				guild: true,
-			},
-			where: { id: interaction.channel.id },
-		});
-		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
-
-		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
-			return await interaction.reply({
-				embeds: [
-					new ExtendedEmbedBuilder({
-						iconURL: interaction.guild.iconURL(),
-						text: ticket.guild.footer,
-					})
-						.setColor(ticket.guild.errorColour)
-						.setTitle(getMessage('commands.slash.claim.not_staff.title'))
-						.setDescription(getMessage('commands.slash.claim.not_staff.description')),
-				],
-				flags: MessageFlags.Ephemeral,
+		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		const getMessage = await getSupportMessages(this.client, { ticketId: interaction.channelId || interaction.channel.id });
+		try {
+			await performAction(this.client, {
+				guildId: interaction.guildId || interaction.guild.id,
+				ticketId: interaction.channelId || interaction.channel.id,
+				actorId: interaction.user.id,
+				action: 'claim',
 			});
+			return interaction.editReply({ content: getMessage('ticket.support.saved') });
+		} catch (error) {
+			if (!error.supportKey) this.client.log.error(error);
+			return interaction.editReply({ content: getMessage(error.supportKey || 'ticket.support.errors.failed') });
 		}
-
-		await interaction.deferReply();
-
-		await Promise.all([
-			interaction.channel.permissionOverwrites.edit(interaction.user, { 'ViewChannel': true }, `Ticket claimed by ${interaction.user.tag}`),
-			...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': false }, `Ticket claimed by ${interaction.user.tag}`)),
-			this.client.prisma.ticket.update({
-				data: {
-					claimedBy: {
-						connectOrCreate: {
-							create: { id: interaction.user.id },
-							where: { id: interaction.user.id },
-						},
-					},
-				},
-				where: { id: interaction.channel.id },
-			}),
-		]);
-
-		const openingMessage = await interaction.channel.messages.fetch(ticket.openingMessageId);
-
-		if (openingMessage && openingMessage.components.length !== 0) {
-			const components = new ActionRowBuilder();
-
-			if (ticket.topic || ticket._count.questionAnswers !== 0) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'edit' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.edit.emoji'))
-						.setLabel(getMessage('buttons.edit.text')),
-				);
-			}
-
-			if (ticket.guild.claimButton && ticket.category.claiming) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'unclaim' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.unclaim.emoji'))
-						.setLabel(getMessage('buttons.unclaim.text')),
-				);
-			}
-
-			if (ticket.guild.closeButton) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'close' }))
-						.setStyle(ButtonStyle.Danger)
-						.setEmoji(getMessage('buttons.close.emoji'))
-						.setLabel(getMessage('buttons.close.text')),
-				);
-			}
-
-			await openingMessage.edit({ components: [components] });
-		}
-
-		await interaction.editReply({
-			embeds: [
-				new ExtendedEmbedBuilder()
-					.setColor(ticket.guild.primaryColour)
-					.setDescription(getMessage('ticket.claimed', { user: interaction.user.toString() })),
-			],
-		});
-
-		logTicketEvent(this.client, {
-			action: 'claim',
-			target: {
-				id: ticket.id,
-				name: interaction.channel.toString(),
-			},
-			userId: interaction.user.id,
-		});
 	}
 
-	/**
-	 * @param {import("discord.js").ChatInputCommandInteraction|import("discord.js").ButtonInteraction} interaction
-	 */
 	async release(interaction) {
-		const ticket = await this.client.prisma.ticket.findUnique({
-			include: {
-				_count: { select: { questionAnswers: true } },
-				category: true,
-				guild: true,
-			},
-			where: { id: interaction.channel.id },
-		});
-		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
-
-		if (!(await isStaff(interaction.guild, interaction.user.id))) { // if user is not staff
-			return await interaction.reply({
-				embeds: [
-					new ExtendedEmbedBuilder({
-						iconURL: interaction.guild.iconURL(),
-						text: ticket.guild.footer,
-					})
-						.setColor(ticket.guild.errorColour)
-						.setTitle(getMessage('commands.slash.claim.not_staff.title'))
-						.setDescription(getMessage('commands.slash.claim.not_staff.description')),
-				],
-				flags: MessageFlags.Ephemeral,
+		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		const getMessage = await getSupportMessages(this.client, { ticketId: interaction.channelId || interaction.channel.id });
+		try {
+			await performAction(this.client, {
+				guildId: interaction.guildId || interaction.guild.id,
+				ticketId: interaction.channelId || interaction.channel.id,
+				actorId: interaction.user.id,
+				action: 'release',
 			});
+			return interaction.editReply({ content: getMessage('ticket.support.saved') });
+		} catch (error) {
+			if (!error.supportKey) this.client.log.error(error);
+			return interaction.editReply({ content: getMessage(error.supportKey || 'ticket.support.errors.failed') });
 		}
-
-		await interaction.deferReply();
-
-		await Promise.all([
-			interaction.channel.permissionOverwrites.delete(interaction.user, `Ticket released by ${interaction.user.tag}`),
-			...ticket.category.staffRoles.map(role => interaction.channel.permissionOverwrites.edit(role, { 'ViewChannel': true }, `Ticket released by ${interaction.user.tag}`)),
-			this.client.prisma.ticket.update({
-				data: { claimedBy: { disconnect: true } },
-				where: { id: interaction.channel.id },
-			}),
-		]);
-
-		const openingMessage = await interaction.channel.messages.fetch(ticket.openingMessageId);
-
-		if (openingMessage && openingMessage.components.length !== 0) {
-			const components = new ActionRowBuilder();
-
-			if (ticket.topic || ticket._count.questionAnswers !== 0) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'edit' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.edit.emoji'))
-						.setLabel(getMessage('buttons.edit.text')),
-				);
-			}
-
-			if (ticket.guild.claimButton && ticket.category.claiming) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'claim' }))
-						.setStyle(ButtonStyle.Secondary)
-						.setEmoji(getMessage('buttons.claim.emoji'))
-						.setLabel(getMessage('buttons.claim.text')),
-				);
-			}
-
-			if (ticket.guild.closeButton) {
-				components.addComponents(
-					new ButtonBuilder()
-						.setCustomId(JSON.stringify({ action: 'close' }))
-						.setStyle(ButtonStyle.Danger)
-						.setEmoji(getMessage('buttons.close.emoji'))
-						.setLabel(getMessage('buttons.close.text')),
-				);
-			}
-
-			await openingMessage.edit({ components: [components] });
-		}
-
-		await interaction.editReply({
-			embeds: [
-				new ExtendedEmbedBuilder()
-					.setColor(ticket.guild.primaryColour)
-					.setDescription(getMessage('ticket.released', { user: interaction.user.toString() })),
-			],
-		});
-
-		logTicketEvent(this.client, {
-			action: 'unclaim',
-			target: {
-				id: ticket.id,
-				name: interaction.channel.toString(),
-			},
-			userId: interaction.user.id,
-		});
 	}
 
 	async buildFeedbackModal(ticket, id) {
@@ -1219,12 +1075,6 @@ module.exports = class TicketManager {
 
 		await this.scheduleClose(ticket, sent, interaction.user.id, reason);
 
-		if (ticket.priority && ticket.priority !== 'LOW') {
-			await this.client.prisma.ticket.update({
-				data: { priority: 'LOW' },
-				where: { id: ticket.id },
-			});
-		}
 	}
 
 	/**
@@ -1326,6 +1176,7 @@ module.exports = class TicketManager {
 			return;
 		}
 
+		syncTicket(this.client, ticket.id).catch(this.client.log.error);
 		const guild = this.client.guilds.cache.get(ticket.guildId);
 
 		if (channel?.deletable) {

@@ -1,3 +1,4 @@
+const { recordParticipant } = require('../lib/ticket-presentation');
 const { getSupportMessages } = require('../lib/support-texts');
 const { Button } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../lib/embed');
@@ -75,6 +76,7 @@ module.exports = class CloseButton extends Button {
 
 					} finally { // this should run regardless of whatever happens above
 						await client.tickets.cancelClose(ticket.id);
+						await recordParticipant(client, ticket.id, interaction.user.id);
 					}
 				}
 			}

@@ -29,13 +29,22 @@ buttons:
   transcript:
     emoji: 📄
     text: Transkript
+  support:
+    text: Support-Aktionen
+  open_ticket:
+    text: Ticket öffnen
+  support_previous:
+    text: Zurück
+  support_next:
+    text: Weiter
 commands:
   message:
     pin:
       name: Nachricht anheften
       not_pinnable:
-        description: "Diese Nachricht kann nicht angeheftet werden.\nBitte einen Administrator,
-          die Berechtigungen des Bots zu überprüfen.\n"
+        description: "Diese Nachricht kann nicht angeheftet werden.
+
+          Bitte einen Administrator, die Berechtigungen des Bots zu überprüfen.\n"
         title: ❌ Fehler
       not_ticket:
         description: Du kannst Nachrichten nur in Tickets anheften.
@@ -50,8 +59,7 @@ commands:
       added: ➡️ {added} wurde von {by} zum Ticket hinzugefügt.
       not_staff:
         title: ❌ Fehler
-        description: Nur Teammitglieder können Benutzer zu Tickets anderer 
-          hinzufügen.
+        description: Nur Teammitglieder können Benutzer zu Tickets anderer hinzufügen.
       options:
         member:
           name: mitglied
@@ -73,8 +81,7 @@ commands:
           commands: Vollständige Befehlsliste
           feedback: Feedback
         commands: Befehle
-        description: '**Verwende {command} um ein Ticket zu erstellen und Hilfe zu
-          erhalten.**'
+        description: '**Verwende {command} um ein Ticket zu erstellen und Hilfe zu erhalten.**'
         settings: Bot-Einstellungen
       name: hilfe
       title: Hilfe
@@ -86,25 +93,23 @@ commands:
           description: Der Grund für das Schließen des/der Tickets
         category:
           name: kategorie
-          description: Schließe alle Tickets einer Kategorie (kann nur mit 
-            `time` verwendet werden)
+          description: Schließe alle Tickets einer Kategorie (kann nur mit `time` verwendet werden)
         time:
           name: zeit
-          description: Alle Tickets schließen, die für die angegebene Zeit 
-            inaktiv waren
+          description: Alle Tickets schließen, die für die angegebene Zeit inaktiv waren
         ticket:
           description: Das Ticket welches geschlossen werden soll
           name: ticket
       no_tickets:
-        description: Es gibt keine offenen Tickets, die länger als `{time}` 
-          inaktiv waren.
+        description: Es gibt keine offenen Tickets, die länger als `{time}` inaktiv waren.
         title: ❌ Keine Tickets
       not_staff:
         title: ❌ Fehler
         description: Nur Teammitglieder können Tickets zwangsweise schliessen.
       confirm_multiple:
-        description: "Du bist dabei **{count}** Tickets zu schließen die länger als
-          `{time}`:\n{tickets} inaktiv waren.\n"
+        description: "Du bist dabei **{count}** Tickets zu schließen die länger als `{time}`:
+
+          {tickets} inaktiv waren.\n"
         title: ❓Bist du sicher?
       description: Ein Ticket zwangsweise schließen
       name: schließen-erzwingen
@@ -114,8 +119,8 @@ commands:
       confirmed_multiple:
         description: Die Tickets werden in ein paar Sekunden gelöscht.
         title:
-        - ✅ Schließe %d Tickets
-        - ✅ Schließe %d Tickets
+          - ✅ Schließe %d Tickets
+          - ✅ Schließe %d Tickets
     close:
       invalid_time:
         title: ❌ Ungültig
@@ -132,8 +137,7 @@ commands:
       moved: 🗃️ {by} hat dieses Ticket von **{from}** zu **{to}** verschoben.
       options:
         category:
-          description: Die Kategorie, in welche das Ticket verschoben werden 
-            soll
+          description: Die Kategorie, in welche das Ticket verschoben werden soll
           name: kategorie
       not_staff:
         description: Nur Teammitglieder können Tickets verschieben.
@@ -162,8 +166,7 @@ commands:
             MEDIUM: 🟠 Mittel
       success:
         title: ✅ Priorität gesetzt
-        description: Die Priorität dieses Tickets wurde auf `{priority}` 
-          gesetzt.
+        description: Die Priorität dieses Tickets wurde auf `{priority}` gesetzt.
       name: priorität
       description: Lege die Priorität eines Tickets fest
       not_staff:
@@ -185,19 +188,18 @@ commands:
         fields:
           closed:
             none:
-              own: "Du hast noch keine Tickets erstellt\nBenutze {new} um ein Ticket
-                zu erstellen.\n"
+              own: "Du hast noch keine Tickets erstellt
+
+                Benutze {new} um ein Ticket zu erstellen.\n"
               other: '{user} hat noch keine Tickets erstellt.'
             name: Geschlossene Tickets
           open:
             name: Offene Tickets
-        description: Verwende {transcript}, um die Abschrift eines Tickets 
-          herunterzuladen.
+        description: Verwende {transcript}, um die Abschrift eines Tickets herunterzuladen.
       description: Eigene oder von jemand anderen Tickets auflisten
     remove:
       not_staff:
-        description: Nur Teammitglieder können Mitglieder aus den Tickets 
-          anderer entfernen.
+        description: Nur Teammitglieder können Mitglieder aus den Tickets anderer entfernen.
         title: ❌ Fehler
       options:
         member:
@@ -220,28 +222,23 @@ commands:
       options:
         ticket:
           name: ticket
-          description: Die Nummer des Tickets von welchem die Abschrift erstellt
-            werden soll
+          description: Die Nummer des Tickets von welchem die Abschrift erstellt werden soll
         member:
           description: Das Mitglied, für das nach Tickets gesucht werden soll
           name: mitglied
       description: Abschrift eines Tickets erhalten
       not_staff:
         title: ❌ Fehler
-        description: Nur Teammitglieder können die Abschrift eines anderen 
-          Tickets lesen.
+        description: Nur Teammitglieder können die Abschrift eines anderen Tickets lesen.
     transfer:
       name: übertragen
-      transferred_from: 📨 {user} hat dieses Ticket von {from} auf {to} 
-        übertragen.
+      transferred_from: 📨 {user} hat dieses Ticket von {from} auf {to} übertragen.
       options:
         member:
           name: mitglied
-          description: Das Mitglied, an das die Eigentümerschaft übertragen 
-            werden soll
+          description: Das Mitglied, an das die Eigentümerschaft übertragen werden soll
       transferred: 📨 {user} hat dieses Ticket an {to} übertragen.
-      description: Eine Ticket Eigentümerschaft an ein anderes Mitglied 
-        übertragen
+      description: Eine Ticket Eigentümerschaft an ein anderes Mitglied übertragen
     tag:
       options:
         for:
@@ -270,8 +267,7 @@ commands:
           description: Der neue Name für den Ticketkanal.
           name: name
       ratelimited:
-        description: Du hast diesen Kanal in den letzten 10 Minuten bereits 
-          zweimal umbenannt. Bitte warte, bevor du es erneut versuchst.
+        description: Du hast diesen Kanal in den letzten 10 Minuten bereits zweimal umbenannt. Bitte warte, bevor du es erneut versuchst.
         title: Limit erreicht
       success:
         description: Der Ticket Kanal wurde in `{name}` umbenannt.
@@ -280,16 +276,14 @@ commands:
     create:
       name: Ticket für Benutzer erstellen
       prompt:
-        description: Drücke auf die Schaltfläche unten, um ein Ticket zu 
-          erstellen.
+        description: Drücke auf die Schaltfläche unten, um ein Ticket zu erstellen.
         title: Bitte erstelle ein Ticket
       sent:
         title: ✅ Prompt gesendet
         description: '{user} wurde eingeladen, ein Ticket in **{category}** zu erstellen.'
       not_staff:
         title: ❌ Fehler
-        description: Nur Teammitglieder können Tickets für andere Mitglieder 
-          öffnen.
+        description: Nur Teammitglieder können Tickets für andere Mitglieder öffnen.
 log:
   admin:
     changes: Änderungen
@@ -337,23 +331,33 @@ menus:
     placeholder: Wähle eine Ticketkategorie
   guild:
     placeholder: Wähle einen Server
+  support:
+    placeholder: Aktion auswählen
+    priority: Priorität auswählen
+    handoff: Nächsten Supporter auswählen
+    move: Kategorie auswählen
+    options:
+      claim: Übernehmen
+      release: Freigeben
+      handoff: An Supporter übergeben
+      priority: Priorität ändern
+      move: Kategorie wechseln
 misc:
   blocked:
     title: ❌ Gesperrt
     description: Du darfst keine Tickets erstellen.
   cooldown:
-    description: Bitte warte {time}, bevor du ein weiteres Ticket in dieser 
-      Kategorie erstellst.
+    description: Bitte warte {time}, bevor du ein weiteres Ticket in dieser Kategorie erstellst.
     title: ❌ Bitte warten
   error:
-    description: "Entschuldigung, ein unerwarteter Fehler ist aufgetreten.\nBitte
-      gib diese Informationen an einen Administrator weiter.\n"
+    description: "Entschuldigung, ein unerwarteter Fehler ist aufgetreten.
+
+      Bitte gib diese Informationen an einen Administrator weiter.\n"
     fields:
       identifier: Kennung
     title: ⚠️ Etwas ist schief gelaufen
   expired:
-    description: Du hast nicht rechtzeitig geantwortet. Bitte versuche es 
-      erneut.
+    description: Du hast nicht rechtzeitig geantwortet. Bitte versuche es erneut.
     title: ⏰ Abgelaufen
   expires_in: Läuft in {time} ab
   invalid_ticket:
@@ -361,13 +365,13 @@ misc:
     title: ❌ Ungültiges Ticket
   member_limit:
     description:
-    - Bitte verwende dein vorhandenes Ticket oder schließe es, bevor du ein 
-      anderes erstellst.
-    - "Bitte schließe ein Ticket, bevor du ein neues erstellst.\nVerwende `/tickets`,
-      um deine bestehenden Tickets anzuzeigen.\n"
+      - Bitte verwende dein vorhandenes Ticket oder schließe es, bevor du ein anderes erstellst.
+      - "Bitte schließe ein Ticket, bevor du ein neues erstellst.
+
+        Verwende `/tickets`, um deine bestehenden Tickets anzuzeigen.\n"
     title:
-    - ❌ Du hast bereits ein Ticket
-    - ❌ Du hast bereits %d offene Tickets
+      - ❌ Du hast bereits ein Ticket
+      - ❌ Du hast bereits %d offene Tickets
   not_ticket:
     title: ❌ Dies ist kein Ticketkanal
     description: Du kannst diesen Befehl nur in Tickets verwenden.
@@ -379,37 +383,37 @@ misc:
     title: ❌ Diese Ticketkategorie existiert nicht
   no_categories:
     title: ❌ Es gibt keine Ticketkategorien
-    description: "Keine Ticketkategorien wurden konfiguriert.\nKonfiguriere deinen
-      Server bei {url}."
+    description: "Keine Ticketkategorien wurden konfiguriert.
+
+      Konfiguriere deinen Server bei {url}."
   missing_roles:
-    description: Du hast nicht die erforderlichen Rollen, um ein Ticket in 
-      dieser Kategorie erstellen zu können.
+    description: Du hast nicht die erforderlichen Rollen, um ein Ticket in dieser Kategorie erstellen zu können.
     title: ❌ Unzureichende Rollen
   category_full:
-    description: "Die Kategorie hat ihre maximale Kapazität erreicht.\nBitte versuche
-      es später erneut.\n"
+    description: "Die Kategorie hat ihre maximale Kapazität erreicht.
+
+      Bitte versuche es später erneut.\n"
     title: ❌ Kategorie voll
   update:
-    description: "> [`{version}` auf GitHub anzeigen]({github})\n> [Änderungsprotokoll]({changelog})\n\
+    description: "> [`{version}` auf GitHub anzeigen]({github})
+
+      > [Änderungsprotokoll]({changelog})
+
       \ > [Dokumentation aktualisieren]({guide})\n"
     title: Eine Aktualisierung ist verfügbar
   role_error:
-    description: Entschuldigung, der Vorgang ist aufgrund einer ungültigen 
-      Konfiguration fehlgeschlagen.
+    description: Entschuldigung, der Vorgang ist aufgrund einer ungültigen Konfiguration fehlgeschlagen.
     fields:
       for_admins:
         name: Für Serveradministrators
-        value: "Ein ungültiger Benutzer oder eine ungültige Rolle wurde angegeben,
-          was normalerweise bedeutet, dass eine Teamrolle gelöscht wurde. [Klicken
-          Sie hier]({url}) für Anweisungen zur Lösung.\n"
+        value: "Ein ungültiger Benutzer oder eine ungültige Rolle wurde angegeben, was normalerweise bedeutet, dass eine Teamrolle gelöscht wurde. [Klicken Sie hier]({url}) für Anweisungen zur Lösung.\n"
     title: ⚠️ Etwas ist schief gelaufen
   permissions_error:
     title: ⚠️ Etwas ist schiefgelaufen
     fields:
       for_admins:
         name: Für Serveradministrators
-    description: Der Vorgang ist leider aufgrund unzureichender Berechtigungen 
-      fehlgeschlagen.
+    description: Der Vorgang ist leider aufgrund unzureichender Berechtigungen fehlgeschlagen.
 modals:
   feedback:
     comment:
@@ -439,9 +443,12 @@ ticket:
     rejected: ✋ {user} hat eine Anfrage zum Schließen dieses Tickets abgelehnt.
     staff_request:
       title: ❓ Kann dieses Ticket geschlossen werden?
-      archived: "\nDie Nachrichten in diesem Kanal werden zu späteren Referenzen archiviert.\n"
-      description: "{requestedBy} möchte dieses Ticket schließen.\nKlicke auf „Akzeptieren“,
-        um es jetzt zu schließen, oder auf „Ablehnen“, wenn du noch Hilfe benötigst.\n"
+      archived: "
+
+        Die Nachrichten in diesem Kanal werden zu späteren Referenzen archiviert.\n"
+      description: "{requestedBy} möchte dieses Ticket schließen.
+
+        Klicke auf „Akzeptieren“, um es jetzt zu schließen, oder auf „Ablehnen“, wenn du noch Hilfe benötigst.\n"
     user_request:
       title: ❓ {requestedBy} möchte dieses Ticket schließen
     wait_for_user: ✋ Bitte warte bis der Benutzer antwortet.
@@ -454,13 +461,14 @@ ticket:
     title: ✅ Ticket aktualisiert
   feedback: Danke für dein Feedback.
   opening_message:
-    content: "{staff}\n{creator} hat ein neues Ticket erstellt\n"
+    content: "{staff}
+
+      {creator} hat ein neues Ticket erstellt\n"
     fields:
       topic: Thema
   references_message:
     title: ℹ️ Referenz
-    description: Verweist auf [eine Nachricht]({url}), die {timestamp} von 
-      {author} gesendet wurde.
+    description: Verweist auf [eine Nachricht]({url}), die {timestamp} von {author} gesendet wurde.
   references_ticket:
     description: 'Dieses Ticket bezieht sich auf ein vorheriges Ticket:'
     fields:
@@ -472,26 +480,53 @@ ticket:
   released: ♻️ {user} hat das Ticket freigegeben.
   closing_soon:
     title: ⌛ Dieses Ticket wird bald geschlossen
-    description: "Dieses Ticket wird wegen Inaktivität <t:{timestamp}:R> geschlossen.\n\
+    description: "Dieses Ticket wird wegen Inaktivität <t:{timestamp}:R> geschlossen.
+
       \ Sende eine Nachricht, um diese Automatisierung abzubrechen.\n"
   inactive:
-    description: "Seit <t:{timestamp}:R> gab es in diesem Kanal keine Aktivität mehr.\n\
+    description: "Seit <t:{timestamp}:R> gab es in diesem Kanal keine Aktivität mehr.
+
       \ Bitte führe die Konversation fort oder {close} das Ticket.\n"
     title: ⏰ Dieses Ticket ist inaktiv
   offline:
-    description: Momentan sind keine Teammitglieder verfügbar, daher kann es 
-      länger als gewöhnlich dauern, um eine Antwort zu erhalten.
+    description: Momentan sind keine Teammitglieder verfügbar, daher kann es länger als gewöhnlich dauern, um eine Antwort zu erhalten.
     title: 😴 Wir sind nicht online
   working_hours:
     next:
-      description: Wir werden um <t:{timestamp}:F>(<t:{timestamp}:R>) zurück 
-        sein, du erhältst aber möglicherweise schon vorher eine Antwort.
+      description: Wir werden um <t:{timestamp}:F>(<t:{timestamp}:R>) zurück sein, du erhältst aber möglicherweise schon vorher eine Antwort.
       title: 🕗 Wir arbeiten im Moment nicht
     today:
       title: 🕗 Wir arbeiten momentan nicht
-      description: Möglicherweise erhältst du schon vorher eine Antwort, aber 
-        wir beginnen erst um <t:{timestamp}:t> heute (<t:{timestamp}:R>) mit der
-        Arbeit.
+      description: Möglicherweise erhältst du schon vorher eine Antwort, aber wir beginnen erst um <t:{timestamp}:t> heute (<t:{timestamp}:R>) mit der Arbeit.
+  support:
+    actions: Ticket-Aktionen
+    saved: Gespeichert. Die Ticket-Anzeige wird aktualisiert.
+    deadline:
+      name: Automatische Schließung
+      value: "{absolute} ({relative})"
+    status:
+      active: Aktiv
+      staff: 🛠️ Wartet auf Support
+      user: 👤 Wartet auf Nutzer
+    overview:
+      title: "{category} · Ticket #{number}"
+      creator: Ersteller
+      assigned: Supporter
+      unassigned: Nicht zugewiesen
+      priority: Priorität
+      no_priority: Nicht gesetzt
+      status: Status
+      activity: Letzte Aktivität
+    errors:
+      closed: Dieses Ticket ist nicht mehr offen.
+      forbidden: Du bist für diese Support-Kategorie nicht berechtigt.
+      assigned: Das Ticket ist bereits vergeben oder du bist nicht der zuständige Supporter.
+      target: Bitte einen berechtigten Supporter dieser Kategorie auswählen.
+      changed: Das Ticket wurde inzwischen geändert. Bitte erneut versuchen.
+      invalid: Ungültige Auswahl oder ungültiger Kanalname.
+      category: Es ist keine berechtigte Zielkategorie verfügbar.
+      full: Die Zielkategorie ist voll oder nicht verfügbar.
+      failed: Die Aktion konnte nicht abgeschlossen werden. Bitte die Bot-Berechtigungen prüfen.
 dm:
   closed:
     title: Dein Ticket wurde geschlossen

@@ -1,0 +1,10 @@
+ALTER TABLE `guilds` ADD COLUMN `ticketOverviewChannel` VARCHAR(191);
+ALTER TABLE `guilds` ADD COLUMN `automaticTicketStatus` BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE `tickets` ADD COLUMN `channelBaseName` VARCHAR(191);
+ALTER TABLE `tickets` ADD COLUMN `lastParticipantSide` VARCHAR(191);
+ALTER TABLE `tickets` ADD COLUMN `lastParticipantMessageId` VARCHAR(191);
+ALTER TABLE `tickets` ADD COLUMN `overviewChannelId` VARCHAR(191);
+ALTER TABLE `tickets` ADD COLUMN `overviewMessageId` VARCHAR(191);
+ALTER TABLE `tickets` ADD COLUMN `lastParticipantAt` DATETIME(3);
+ALTER TABLE `tickets` ADD COLUMN `presentationAttempts` INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE `tickets` ADD COLUMN `presentationNextAttemptAt` DATETIME(3);

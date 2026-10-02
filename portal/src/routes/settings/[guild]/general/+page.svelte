@@ -48,6 +48,8 @@
 	settings.autoClose = settings.autoClose ? ms(settings.autoClose) : '';
 	settings.logChannel = settings.logChannel ?? '';
 	settings.transcriptChannel = settings.transcriptChannel ?? '';
+	settings.ticketOverviewChannel = settings.ticketOverviewChannel ?? '';
+	settings.automaticTicketStatus = settings.automaticTicketStatus ?? true;
 	settings.staleAfter = settings.staleAfter ? ms(settings.staleAfter) : '';
 	settings.workingHours = settings.workingHours.map((v) => (v === null ? [] : v));
 
@@ -60,7 +62,7 @@
 			// error = null;
 			loading = true;
 			const json = { ...settings };
-			json.autoClose = settings.autoClose ? ms(settings.autoClose) : null;
+			json.autoClose = settings.autoClose ? ms(settings.autoClose) : 0;
 			json.staleAfter = settings.staleAfter ? ms(settings.staleAfter) : null;
 			// if (json.autoClose !== null && json.staleAfter === null)
 			// 	throw new Error('autoClose cannot be set unless staleAfter is also set.');
@@ -68,6 +70,7 @@
 			else if (!Array.isArray(settings.autoTag)) json.autoTag = []; // it only updates if you select (and optionally deselect) a channel
 			if (settings.logChannel === '') json.logChannel = null;
 			if (settings.transcriptChannel === '') json.transcriptChannel = null;
+			if (settings.ticketOverviewChannel === '') json.ticketOverviewChannel = null;
 			delete json.textOverrides;
 			json.workingHours = settings.workingHours.map((v) => (v.length === 0 ? null : v));
 
@@ -299,6 +302,18 @@
 					{#each channels as channel}<option value={channel.id}>#{channel.name}</option>{/each}
 				</select>
 				<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Hier werden Transkript-Dateien und Abschlussübersichten abgelegt. Wähle einen anderen Kanal als den Log-Kanal. Die Nachrichtenarchivierung muss aktiviert sein.</p>
+			</div>
+			<div>
+				<label for="ticket-overview-channel" class="font-medium">Ticket-Übersichtskanal</label>
+				<select id="ticket-overview-channel" class="input form-select block font-normal" bind:value={settings.ticketOverviewChannel}>
+					<option value="">Keine Ticket-Übersicht</option>
+					{#each channels as channel}<option value={channel.id}>#{channel.name}</option>{/each}
+				</select>
+				<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Ein interner Kanal für beide Support-Kategorien. Pro offenem Ticket gibt es einen Eintrag, der beim Schließen gelöscht wird. Wähle einen anderen Kanal als Log und Transkript.</p>
+			</div>
+			<div>
+				<label for="automatic-ticket-status" class="flex items-center gap-2 font-medium"><input id="automatic-ticket-status" type="checkbox" class="form-checkbox" bind:checked={settings.automaticTicketStatus} />Automatischer Antwortstatus</label>
+				<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Nach fünf Minuten ohne Rückmeldung: 🛠️ wartet auf Support, 👤 wartet auf Nutzer. Das Prioritäts-Emoji bleibt daneben erhalten. Jede neue Antwort startet die Wartezeit erneut.</p>
 			</div>
 			<div>
 				<label class="font-medium">

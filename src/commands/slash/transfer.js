@@ -4,10 +4,10 @@ const {
 	ApplicationCommandOptionType,
 	EmbedBuilder,
 } = require('discord.js');
-const ExtendedEmbedBuilder = require('../../lib/embed');
-const { pools } = require('../../lib/threads');
+const { performAction } = require('../../lib/ticket-actions');
 
-const { crypto } = pools;
+
+
 
 module.exports = class TransferSlashCommand extends SlashCommand {
 	constructor(client, options) {
@@ -38,90 +38,31 @@ module.exports = class TransferSlashCommand extends SlashCommand {
 	 * @param {import("discord.js").ChatInputCommandInteraction} interaction
 	 */
 	async run(interaction) {
-		/** @type {import("client")} */
-		const client = this.client;
-
-		await interaction.deferReply();
-
-		const member = interaction.options.getMember('member', true);
-
-		const ticket = await client.prisma.ticket.findUnique({
-			include: {
-				category: true,
-				guild: true,
-			},
-			where: { id: interaction.channel.id },
+		await interaction.deferReply({ flags: 64 });
+		const getMessage = await getSupportMessages(this.client, {
+			ticketId: interaction.channelId,
+			guildId: interaction.guildId,
 		});
-
-		if (!ticket) {
-			const settings = await client.prisma.guild.findUnique({ where: { id: interaction.guild.id } });
-			const getMessage = await getSupportMessages(client, { guildId: settings.id || interaction.guildId });
-			return await interaction.editReply({
-				embeds: [
-					new ExtendedEmbedBuilder({
-						iconURL: interaction.guild.iconURL(),
-						text: settings.footer,
-					})
-						.setColor(settings.errorColour)
-						.setTitle(getMessage('misc.not_ticket.title'))
-						.setDescription(getMessage('misc.not_ticket.description')),
-				],
+		try {
+			const ticket = await this.client.prisma.ticket.findUnique({ where: { id: interaction.channelId } });
+			const member = interaction.options.getUser('member', true);
+			const updated = await performAction(this.client, {
+				guildId: interaction.guildId,
+				ticketId: interaction.channelId,
+				actorId: interaction.user.id,
+				action: 'transfer',
+				value: member.id,
 			});
+			await interaction.editReply({
+				embeds: [new EmbedBuilder().setColor(updated.guild.primaryColour).setDescription(getMessage('commands.slash.transfer.transferred' + (interaction.user.id !== ticket.createdById ? '_from' : ''), {
+					from: '<@' + ticket.createdById + '>',
+					to: '<@' + member.id + '>',
+					user: '<@' + interaction.user.id + '>',
+				}))],
+			});
+		} catch (error) {
+			if (!error.supportKey) this.client.log.error(error);
+			await interaction.editReply({ content: getMessage(error.supportKey || 'ticket.support.errors.failed') });
 		}
-
-		const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
-		const from = ticket.createdById;
-
-		const channelName = ticket.category.channelName
-			.replace(/{+\s?(user)?name\s?}+/gi, member.user.username)
-			.replace(/{+\s?(nick|display)(name)?\s?}+/gi, member.displayName)
-			.replace(/{+\s?num(ber)?\s?}+/gi, ticket.number === 1488 ? '1487b' : ticket.number);
-
-		await Promise.all([
-			client.prisma.ticket.update({
-				data: {
-					createdBy: {
-						connectOrCreate: {
-							create: { id: member.id },
-							where: { id: member.id },
-						},
-					},
-				},
-				where: { id: interaction.channel.id },
-			}),
-			interaction.channel.edit({
-				name: channelName,
-				topic: `${member.toString()}${ticket.topic && ` | ${await crypto.queue(w => w.decrypt(ticket.topic))}`}`,
-			}),
-			interaction.channel.permissionOverwrites.edit(
-				member,
-				{
-					AttachFiles: true,
-					EmbedLinks: true,
-					ReadMessageHistory: true,
-					SendMessages: true,
-					ViewChannel: true,
-				},
-			),
-		]);
-
-		const $category = client.tickets.$count.categories[ticket.categoryId];
-		$category[from]--;
-		$category[member.id] ||= 0;
-		$category[member.id]++;
-
-		await interaction.editReply({
-			embeds: [
-				new EmbedBuilder()
-					.setColor(ticket.guild.primaryColour)
-					.setDescription(getMessage(`commands.slash.transfer.transferred${interaction.member.id !== from ? '_from' : ''}`, {
-						from: `<@${from}>`,
-						to: member.toString(),
-						user: interaction.user.toString(),
-					})),
-
-			],
-		});
-
 	}
 };
