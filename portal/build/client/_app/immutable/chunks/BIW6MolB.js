@@ -1,0 +1,1 @@
+import{G as t}from"./CchGQewc.js";const o=t({questions:[]}),a=t({tags:[]});export{o as q,a as t};

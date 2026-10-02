@@ -206,5 +206,6 @@ module.exports = async client => {
 		errorId,
 	}) => {
 		client.log.error.http(`SvelteKit ${errorId} ${error}`);
+		client.log.error(error);
 	});
 };

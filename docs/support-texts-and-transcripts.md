@@ -26,6 +26,10 @@ Versandaufträge liegen dauerhaft am Ticket. Der Bot versucht die Zustellung dir
 
 Ein Zustellfehler verhindert den Ticketabschluss nicht. Die Archivdaten bleiben für den manuellen Download erhalten. Ausstehende Aufträge verwenden beim nächsten Versuch den aktuell eingestellten Transkript-Kanal.
 
+## Feedback ansehen
+
+**Feedback** in der Serververwaltung zeigt Bewertungen und Kommentare direkt, mit Ticketnummer, Kategorie und Datum. Die Übersicht ist nur für Serveradministratoren zugänglich und zeigt jeweils 25 Einträge. Ein nicht entschlüsselbarer Kommentar wird gekennzeichnet, ohne die übrigen Bewertungen auszublenden. Der Download oder die Veröffentlichung von Feedback ist damit nicht verbunden.
+
 ## Entwicklung und Prüfung
 
 Portal erneut bauen: `npm --prefix portal ci --ignore-scripts`, danach `npm run portal:build`. Quellcode und `portal/build` gemeinsam committen. Die Herkunft des Portals steht in `portal/UPSTREAM.md`.
