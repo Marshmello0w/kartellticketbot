@@ -142,7 +142,7 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 			fields.push({
 				name: getMessage('commands.slash.tickets.response.fields.closed.name'),
 				value: getMessage(`commands.slash.tickets.response.fields.closed.none.${ownOrOther}`, {
-					new: `</${newCommand.name}:${newCommand.id}>`,
+					new: newCommand ? `</${newCommand.name}:${newCommand.id}>` : '/new',
 					user: member.user.toString(),
 				}),
 			});
@@ -174,7 +174,7 @@ module.exports = class TicketsSlashCommand extends SlashCommand {
 
 		if (settings.archive && process.env.OVERRIDE_ARCHIVE !== 'false') {
 			const transcriptCommand = getCommandCache(client, interaction.guildId).find(c => c.name === 'transcript');
-			embed.setDescription(getMessage('commands.slash.tickets.response.description', { transcript: `</${transcriptCommand.name}:${transcriptCommand.id}>` }));
+			embed.setDescription(getMessage('commands.slash.tickets.response.description', { transcript: transcriptCommand ? `</${transcriptCommand.name}:${transcriptCommand.id}>` : '/transcript' }));
 		}
 
 		return await interaction.editReply({ embeds: [embed] });
