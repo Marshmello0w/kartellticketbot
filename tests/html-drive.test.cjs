@@ -68,7 +68,7 @@ test('Discord media IDs stay stable across renewed signatures and CDN proxy URLs
 test('Google Drive validates private folders and never exposes credentials in API errors',async()=>{
  const drive=new GoogleDrive({clientId:'private-client',clientSecret:'secret-credentials',refreshToken:'private-refresh',rootFolderId:'root'},async(url,options)=>{
   if(url.includes('oauth2.googleapis')) return Response.json({access_token:'secret-token',expires_in:3600});
-  assert.equal(options.redirect,'error'); assert.equal(options.headers.Authorization,'Bearer secret-token');
+  assert.equal(options.redirect,'manual'); assert.equal(options.headers.Authorization,'Bearer secret-token');
   return Response.json({mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true},appProperties:{ticketArchiveRoot:'1'},permissions:[{role:'owner'},{role:'reader',type:'anyone'}]});
  });
  await assert.rejects(drive.validateRoot(),error=>error.code==='NOT_PRIVATE' && !/secret|refresh/.test(error.message));

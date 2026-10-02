@@ -43,12 +43,13 @@ class GoogleDrive {
 		return this.refreshing;
 	}
 	async request(url, options = {}) {
-		// Never forward tokens to a redirect or to a URL supplied by ticket content.
+		// Drive uses HTTP 308 for unfinished uploads. Expose that response without
+		// following redirects or forwarding tokens to another destination.
 		const destination = new URL(url);
 		if (destination.protocol !== 'https:' || destination.hostname !== 'www.googleapis.com') throw new DriveError('UNSAFE_URL');
 		const response = await this.fetch(url, {
 			...options,
-			redirect: 'error',
+			redirect: 'manual',
 			signal: options.signal || AbortSignal.timeout(60000),
 			headers: {
 				...options.headers,

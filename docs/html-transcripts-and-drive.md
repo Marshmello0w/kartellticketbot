@@ -53,6 +53,8 @@ Ein ZIP wird nur angehängt, wenn es innerhalb des Discord-Dateilimits liegt. Be
 
 Upload- und Zustellfehler verhindern den Ticketabschluss nicht. Aufträge, Fortschritt, Fehlercodes und erfolgreiche Nachrichten-IDs bleiben gespeichert. Wiederholungen erfolgen nach einer, fünf und anschließend jeweils fünfzehn Minuten; längere API-Vorgaben werden berücksichtigt. Ein Abgleich alle 30 Sekunden arbeitet die Drive-Aufträge ab. Im Portal zeigt **Status aktualisieren** die Verbindung, ausstehende Dateien und aktuelle Archivierungsfehler.
 
+Bei einem verbundenen Konto, einem bereits angelegten leeren Ticketordner und wiederholtem `UPLOAD`-Fehler den Bot auf den aktuellen Stand bringen und neu starten. Der Upload berücksichtigt Googles `308 Resume Incomplete`-Antworten, ohne Weiterleitungen zu folgen. Bereits gespeicherte Aufträge und lokale Dateikopien werden weiterverwendet; ein neues Testticket oder eine erneute Google-Anmeldung ist dafür nicht nötig. Ausstehende Wiederholungen folgen weiterhin der gespeicherten Frist von höchstens 15 Minuten, sofern Google keine längere Pause vorgibt.
+
 Der Schalter steuert die Sicherung neuer Nachrichten. Bereits eingetragene Datei-, Abschluss- und Löschaufträge werden weiter bearbeitet, auch nach dem Ausschalten. Dateien dürfen nicht manuell in die Bot-Ticketordner verschoben werden; diese Ordner sind ausschließlich für das automatische Archiv vorgesehen.
 
 ## Aufbewahrung
