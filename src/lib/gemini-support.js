@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const { createHash } = require('node:crypto');
 const Input = require('./ai-input');
+const { describeReason } = require('./ai-diagnostics');
 
 // Pin both the model and tariff: configurable model names would invalidate the cap.
 const MODEL = 'gemini-3.5-flash-lite';
@@ -77,7 +78,6 @@ function bodyFor(knowledge, conversation) {
 		}],
 		generationConfig: {
 			maxOutputTokens: MAX_OUTPUT,
-			temperature: 1,
 			thinkingConfig: { thinkingLevel: 'minimal' },
 			responseMimeType: 'application/json',
 			responseSchema: {
@@ -132,27 +132,94 @@ class GeminiFailure extends Error {
 async function request(key, body, fetcher = fetch) {
 	let response;
 	try {
-		response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-			method: 'POST',
+		response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}${body ? ':generateContent' : ''}`, {
+			method: body ? 'POST' : 'GET',
 			redirect: 'error',
-			signal: AbortSignal.timeout(30000),
+			signal: AbortSignal.timeout(body ? 30000 : 10000),
 			headers: {
 				'Content-Type': 'application/json',
 				'x-goog-api-key': key,
 			},
-			body: JSON.stringify(body),
+			...(body ? { body: JSON.stringify(body) } : {}),
 		});
-	} catch {
-		throw new GeminiFailure('NETWORK');
+	} catch (error) {
+		throw new GeminiFailure(networkCode(error));
 	}
 	let data;
 	try {
 		data = await response.json();
-	} catch {
-		throw new GeminiFailure('INVALID_RESPONSE', response.status);
+	} catch (error) {
+		if (response.ok) throw new GeminiFailure(error?.name === 'SyntaxError' ? 'INVALID_RESPONSE' : networkCode(error), response.status);
 	}
-	if (!response.ok) throw new GeminiFailure('HTTP_' + response.status, response.status, response.status === 429 ? quotaDelay(data, response.headers) : 0);
+	if (!response.ok) {
+		const retry = response.headers?.get('retry-after');
+		const delay = Math.max(0, Number(retry) * 1000 || Date.parse(retry) - Date.now() || 0);
+		throw new GeminiFailure(httpCode(response.status, data), response.status, response.status === 429 ? quotaDelay(data, response.headers) : delay);
+	}
+	if (!data || typeof data !== 'object' || Array.isArray(data)) throw new GeminiFailure('INVALID_RESPONSE', response.status);
 	return data;
+}
+function networkCode(error) {
+	if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'TIMEOUT';
+	const code = error?.cause?.code || error?.code;
+	if (['UND_ERR_CONNECT_TIMEOUT', 'ETIMEDOUT'].includes(code)) return 'CONNECT_TIMEOUT';
+	if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) return 'DNS';
+	return 'NETWORK';
+}
+function httpCode(status, data) {
+	const reasons = Array.isArray(data?.error?.details) ? data.error.details.map(detail => detail?.reason) : [];
+	if (reasons.includes('API_KEY_INVALID')) return 'API_KEY_INVALID';
+	if (reasons.includes('API_KEY_EXPIRED')) return 'API_KEY_EXPIRED';
+	if (reasons.includes('SERVICE_DISABLED')) return 'SERVICE_DISABLED';
+	if (reasons.some(reason => ['API_KEY_SERVICE_BLOCKED', 'API_KEY_HTTP_REFERRER_BLOCKED', 'API_KEY_IP_ADDRESS_BLOCKED', 'API_KEY_ANDROID_APP_BLOCKED', 'API_KEY_IOS_APP_BLOCKED'].includes(reason))) return 'KEY_RESTRICTED';
+	// Recognize only this fixed failure category; never retain the message itself.
+	if ([400, 403].includes(status) && typeof data?.error?.message === 'string' && /reported as leaked/i.test(data.error.message)) return 'API_KEY_LEAKED';
+	if (status === 400 && data?.error?.status === 'FAILED_PRECONDITION') return 'PRECONDITION';
+	return [400, 401, 402, 403, 404, 408, 429, 500, 502, 503, 504].includes(status) ? 'HTTP_' + status : 'HTTP_UNKNOWN';
+}
+function providerReason(error) {
+	return describeReason(error instanceof GeminiFailure ? 'PROVIDER_' + error.code : 'PROVIDER_NETWORK').code;
+}
+async function freeRequest(key, body, fetcher) {
+	try {
+		return await request(key, body, fetcher);
+	} catch (error) {
+		// One retry only for an explicit temporary server rejection on the free
+		// access. Never retry an uncertain/billed generation or ignore Retry-After.
+		if (![500, 503].includes(error.status) || error.delay > 1000) throw error;
+		await new Promise(resolve => setTimeout(resolve, 1000));
+		return request(key, body, fetcher);
+	}
+}
+async function checkConnection(config = configuration(), fetcher = fetch) {
+	const check = async key => {
+		try {
+			const data = await request(key, null, fetcher);
+			if (!Array.isArray(data.supportedGenerationMethods)) throw new GeminiFailure('INVALID_RESPONSE');
+			if (!data.supportedGenerationMethods.includes('generateContent')) throw new GeminiFailure('MODEL_UNSUPPORTED');
+			return { ok: true };
+		} catch (error) {
+			return {
+				ok: false,
+				...describeReason(providerReason(error)),
+			};
+		}
+	};
+	if (config.error) {
+		return {
+			free: {
+				ok: false,
+				...describeReason('CONFIG'),
+			},
+			paid: null,
+		};
+	}
+	// Metadata only: no prompts, generations, budget reservations or quota resets.
+	const [free, paid] = await Promise.all([check(config.freeKey), config.paidKey ? check(config.paidKey) : null]);
+	return {
+		free,
+		paid,
+	};
 }
 async function blocked(db, tier, key, now) {
 	const id = createHash('sha256').update(tier + key).digest('hex');
@@ -267,7 +334,7 @@ async function complete(db, taskId, body, parse, config = configuration(), fetch
 	if (!free.blocked) {
 		try {
 			return {
-				...parse(await request(config.freeKey, body, fetcher)),
+				...parse(await freeRequest(config.freeKey, body, fetcher)),
 				tier: 'free',
 			};
 		} catch (error) {
@@ -275,7 +342,7 @@ async function complete(db, taskId, body, parse, config = configuration(), fetch
 			if (error.status !== 429) {
 				return {
 					action: 'human',
-					reason: 'PROVIDER',
+					reason: providerReason(error),
 				};
 			}
 			await cooldown(db, free.id, error, now);
@@ -320,7 +387,7 @@ async function complete(db, taskId, body, parse, config = configuration(), fetch
 		}
 		return {
 			action: 'human',
-			reason: error.status === 402 ? 'BUDGET' : 'PROVIDER',
+			reason: error.status === 402 ? 'BUDGET' : error.status === 429 ? 'QUOTA' : providerReason(error),
 		};
 	}
 }
@@ -412,4 +479,5 @@ module.exports = {
 	reserve,
 	settle,
 	status,
+	checkConnection,
 };

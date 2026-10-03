@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { createHash } = require('node:crypto');
 const {
 	ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField,
 } = require('discord.js');
@@ -95,7 +96,7 @@ async function closedControls(client, ticket, channel) {
 				.setDescription(getMessage('ticket.close.' + (archived ? 'retained' : 'retained_no_archive'))).setFooter({ text: footer })],
 			components: [row],
 			allowedMentions: { parse: [] },
-			nonce: ticket.id,
+			nonce: createHash('sha256').update('closed-controls:' + ticket.id).digest('hex').slice(0, 24),
 			enforceNonce: true,
 		});
 	}

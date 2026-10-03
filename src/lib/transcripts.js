@@ -2,6 +2,7 @@ const {
 	AttachmentBuilder, ChannelType, EmbedBuilder, PermissionsBitField,
 } = require('discord.js');
 const fs = require('fs');
+const { createHash } = require('node:crypto');
 const { join } = require('path');
 const Mustache = require('mustache');
 const { getSupportMessages } = require('./support-texts');
@@ -175,7 +176,7 @@ async function deliverTranscript(client, ticketId) {
 					embeds: [embed],
 					files: [new AttachmentBuilder(Buffer.from(transcript), { name: fileName })],
 					allowedMentions: { parse: [] },
-					nonce: ticketId,
+					nonce: createHash('sha256').update('transcript:' + ticketId).digest('hex').slice(0, 24),
 					enforceNonce: true,
 				});
 			}

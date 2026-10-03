@@ -160,3 +160,34 @@ test('participant commands racing with Close cannot restore user visibility or r
   await command.run(interaction);assert.match(replies.at(-1).content,/bereits geschlossen/);assert.equal(f.channel.permissionOverwrites.cache.get(f.ids.other).deny.has('ViewChannel'),true);
  }
 });
+
+test('close controls and transcript use separate author-wide nonces and restart recovery preserves the correct message',sqlite,async t=>{
+ const f=await fixture(t), transcriptId=String(BigInt(f.guildId)+30n), nonces=new Map(), sent=[];
+ await f.db.guild.update({where:{id:f.guildId},data:{transcriptChannel:transcriptId}});
+ f.client.config={templates:{}};
+ const send=f.channel.send;
+ f.channel.send=async payload=>{
+  if(payload.enforceNonce&&nonces.has(payload.nonce))return nonces.get(payload.nonce);
+  const message=await send(payload);nonces.set(payload.nonce,message);return message;
+ };
+ const transcriptChannel={id:transcriptId,guildId:f.guildId,type:D.ChannelType.GuildText,guild:{members:{me:{}}},permissionsFor:()=>({has:()=>true}),
+  messages:{fetch:async()=>new D.Collection(sent.map(msg=>[msg.id,msg]))},
+  send:async payload=>{
+   if(payload.enforceNonce&&nonces.has(payload.nonce))return nonces.get(payload.nonce);
+   const message={id:String(BigInt(transcriptId)+1n),channelId:transcriptId,payload,author:{id:f.ids.bot},attachments:new D.Collection([['html',{}]]),embeds:payload.embeds.map(embed=>embed.toJSON())};
+   nonces.set(payload.nonce,message);sent.push(message);return message;
+  }
+ };
+ const fetch=f.client.channels.fetch;
+ f.client.channels.fetch=async id=>id===transcriptId?transcriptChannel:fetch(id);
+ const transcripts=load('src/lib/transcripts.js',{'./threads':{pools:{transcript:{queue:async callback=>callback(ticket=>ticket)},crypto:{queue:async callback=>callback({decrypt:value=>value})}}}});
+ await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff});
+ const controls=(await f.read()).closedControlMessageId;
+ await transcripts.deliverTranscript(f.client,f.ids.ticket);
+ const row=await f.read();assert.equal(sent.length,1);assert.notEqual(row.transcriptMessageId,controls);assert.equal(row.transcriptMessageId,sent[0].id);assert.equal(sent[0].payload.files[0].name,'ticket-1.html');
+ assert.equal(nonces.size,2);for(const nonce of nonces.keys())assert.ok(nonce.length<=25);
+ assert.equal(f.channel.sent,1);assert.equal(f.channel.deletions,0);
+ await f.db.ticket.update({where:{id:f.ids.ticket},data:{transcriptPending:true,transcriptMessageId:null,transcriptNextAttemptAt:null}});
+ await transcripts.deliverPendingTranscripts({...f.client});
+ assert.equal(sent.length,1);assert.equal((await f.read()).transcriptMessageId,sent[0].id);
+});
