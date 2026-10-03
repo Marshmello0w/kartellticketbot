@@ -16,6 +16,8 @@ const encrypt = value => require('./crypto').encrypt(value);
 const decrypt = value => require('./crypto').decrypt(value);
 
 const RETENTION = 90 * 86400000;
+const DOWNLOAD_VERSION = 1;
+const MAX_ATTACHMENT_BYTES = 512 * 1024 * 1024;
 const assetJobs = new Map();
 const sourceJobs = new Map();
 const archiveJobs = new Map();
@@ -193,6 +195,7 @@ async function captureContent(client, ticket, content, messageId) {
 			},
 			create: {
 				id,
+				downloadVersion: DOWNLOAD_VERSION,
 				archiveId: archive.id,
 				assetKey: input.key,
 				sourceUrl: encrypt(input.url),
@@ -224,10 +227,20 @@ async function markClosed(client, ticket) {
 }
 async function downloadSource(client, asset, target) {
 	const archiveId = asset.archiveId;
+	const isAttachment = asset.assetKey.startsWith('attachment:');
 	let url = originalSourceUrl(decrypt(asset.sourceUrl));
 	if (!url) throw new DriveError('UNSAFE_URL');
-	// Repair existing tasks using the original attachment in the archived message.
-	if (asset.assetKey.startsWith('attachment:') && asset.messageId && ['DOWNLOAD', 'SIZE_MISMATCH'].includes(asset.errorCode)) {
+	const refreshMetadata = async attachment => {
+		url = originalSourceUrl(attachment?.url) || url;
+		const data = { sourceUrl: encrypt(url) };
+		if (Number.isSafeInteger(attachment?.size) && attachment.size >= 0) data.size = asset.size = attachment.size;
+		await client.prisma.driveAsset.update({
+			where: { id: asset.id },
+			data,
+		});
+	};
+	// Legacy preview tasks can contain both the wrong URL and the wrong size.
+	if (isAttachment && asset.messageId && ['DOWNLOAD', 'SIZE_MISMATCH'].includes(asset.errorCode)) {
 		const message = await client.prisma.archivedMessage.findUnique({
 			where: { id: asset.messageId },
 			select: { content: true },
@@ -235,7 +248,7 @@ async function downloadSource(client, asset, target) {
 		if (message) {
 			const content = JSON.parse(decrypt(message.content));
 			const attachment = content.attachments?.find(item => 'attachment:' + item.id === asset.assetKey);
-			url = originalSourceUrl(attachment?.url) || url;
+			if (attachment) await refreshMetadata(attachment);
 		}
 	}
 	if (url !== decrypt(asset.sourceUrl)) {
@@ -244,51 +257,84 @@ async function downloadSource(client, asset, target) {
 			data: { sourceUrl: encrypt(url) },
 		});
 	}
+	const refreshFromDiscord = async () => {
+		try {
+			const channel = await client.channels.fetch(archiveId);
+			const message = await channel.messages.fetch({
+				message: asset.messageId,
+				force: true,
+				cache: false,
+			});
+			const attachment = message.attachments.get(asset.assetKey.slice(11));
+			if (!attachment || !sourceUrl(attachment.url)) throw new DriveError('MISSING');
+			await refreshMetadata(attachment);
+		} catch (error) {
+			if (error.code === 'MISSING' || [10003, 10008].includes(error.code)) throw new DriveError('MISSING');
+			throw new DriveError('SOURCE');
+		}
+	};
+	if (isAttachment && asset.messageId && asset.errorCode === 'SIZE_MISMATCH') {
+		// If the message still exists, refresh both size and URL without using its cache.
+		// A removed channel must not prevent a still-valid archived URL being downloaded.
+		await refreshFromDiscord().catch(() => {});
+	}
 	let response;
 	for (let attempt = 0; attempt < 2; attempt++) {
 		response = await (client.archiveFetch || fetch)(url, {
 			redirect: 'error',
+			headers: {
+				Accept: 'application/octet-stream',
+				'Accept-Encoding': 'identity',
+			},
 			signal: AbortSignal.timeout(300000),
 		});
 		if (![403, 404].includes(response.status)) break;
-		if (!attempt && asset.assetKey.startsWith('attachment:') && asset.messageId) {
-			try {
-				const channel = await client.channels.fetch(archiveId);
-				const message = await channel.messages.fetch({
-					message: asset.messageId,
-					force: true,
-					cache: false,
-				});
-				const attachment = message.attachments.get(asset.assetKey.slice(11));
-				if (!attachment || !sourceUrl(attachment.url)) throw new DriveError('MISSING');
-				url = originalSourceUrl(attachment.url);
-				await client.prisma.driveAsset.update({
-					where: { id: asset.id },
-					data: { sourceUrl: encrypt(url) },
-				});
-				continue;
-			} catch (error) {
-				if (error.code === 'MISSING' || [10003, 10008].includes(error.code)) throw new DriveError('MISSING');
-				throw new DriveError('SOURCE');
-			}
+		await response.body?.cancel();
+		if (!attempt && isAttachment && asset.messageId) {
+			await refreshFromDiscord();
+			continue;
 		}
 		if (response.status === 404 || asset.attempts >= 2) throw new DriveError('MISSING');
 		throw new DriveError('SOURCE');
 	}
-	if (!response.ok) throw new DriveError('SOURCE', (Number(response.headers.get('retry-after')) || 0) * 1000);
+	if (response.status !== 200) {
+		await response.body?.cancel();
+		throw new DriveError('SOURCE', (Number(response.headers.get('retry-after')) || 0) * 1000);
+	}
+	const lengthHeader = response.headers.get('content-length');
+	const encoding = response.headers.get('content-encoding');
+	const length = lengthHeader !== null && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
+	const reliableLength = !encoding || encoding === 'identity';
+	const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+	if (mime === 'text/html' && asset.mime !== 'text/html') {
+		await response.body?.cancel();
+		throw new DriveError('SOURCE');
+	}
+	// A full CDN response is authoritative; old Discord metadata can refer to a
+	// different image representation. Never accept a truncated or partial response.
+	const expected = reliableLength && Number.isSafeInteger(length) && length >= 0 ? length : isAttachment && asset.size > 0 ? asset.size : null;
+	const limit = isAttachment ? MAX_ATTACHMENT_BYTES : 16 * 1024 * 1024;
+	if (expected > limit) {
+		await response.body?.cancel();
+		throw new DriveError('DOWNLOAD_LIMIT');
+	}
+	if (expected === 0 && asset.size > 0) {
+		await response.body?.cancel();
+		throw new DriveError('SIZE_MISMATCH');
+	}
 	let bytes = 0;
-	// Bound unexpected responses using the Discord attachment's declared size.
-	const maximum = asset.size > 0 ? asset.size : 16 * 1024 * 1024;
+	const maximum = expected ?? limit;
 	const counter = new Transform({
 		transform(chunk, encoding, done) {
 			bytes += chunk.length;
-			done(bytes > maximum ? new DriveError(asset.size > 0 ? 'SIZE_MISMATCH' : 'DOWNLOAD_LIMIT') : null, chunk);
+			done(bytes > maximum ? new DriveError(expected !== null ? 'SIZE_MISMATCH' : 'DOWNLOAD_LIMIT') : null, chunk);
 		},
 	});
 	const temporary = target + '.part';
 	try {
-		await pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(temporary, { mode: 0o600 }));
-		if (asset.assetKey.startsWith('attachment:') && asset.size && bytes !== asset.size) throw new DriveError('SIZE_MISMATCH');
+		if (!response.body && expected !== 0) throw new DriveError('SIZE_MISMATCH');
+		await pipeline(response.body ? Readable.fromWeb(response.body) : Readable.from([]), counter, fs.createWriteStream(temporary, { mode: 0o600 }));
+		if (expected !== null && bytes !== expected) throw new DriveError('SIZE_MISMATCH');
 		await fs.promises.rename(temporary, target);
 	} catch (error) {
 		await fs.promises.unlink(temporary).catch(() => {});
@@ -326,7 +372,10 @@ async function stageAssetNow(client, id) {
 			state: 'pending',
 			AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] }, { OR: [{ leaseUntil: null }, { leaseUntil: { lte: new Date() } }] }],
 		},
-		data: { leaseUntil: new Date(Date.now() + 600000) },
+		data: {
+			leaseUntil: new Date(Date.now() + 600000),
+			downloadVersion: DOWNLOAD_VERSION,
+		},
 	});
 	if (!claim.count) return false;
 	try {
@@ -644,6 +693,7 @@ async function processArchiveNow(client, id) {
 				mime: 'application/zip',
 				ticketId: id,
 				assetId: 'zip',
+				replace: archive.zipRevision > 0,
 				session: archive.zipSession ? decrypt(archive.zipSession) : null,
 			}, async (session, uploadedBytes) => {
 				const fresh = await client.prisma.driveArchive.findUnique({ where: { id } });
@@ -709,12 +759,16 @@ async function deliverZip(client, archive, ticket) {
 	const message = await channel.messages.fetch(ticket.transcriptMessageId);
 	if (!message || message.author.id !== client.user.id) throw new DriveError('PERMISSION');
 	const name = 'ticket-' + ticket.number + '.zip';
+	const revision = 'drive-archive:' + archive.id + ':' + archive.zipRevision;
 	// An edit may have succeeded before the database update was persisted.
-	if (![...message.attachments.values()].some(a => a.name === name)) {
+	if (![...message.attachments.values()].some(a => a.name === name && (!archive.zipRevision || a.description === revision))) {
 		const tooLarge = archive.zipSize > uploadLimit(channel.guild);
-		const retained = [...message.attachments.values()].map(a => ({ id: a.id }));
-		const files = tooLarge ? [] : [new AttachmentBuilder(spool(archive.id, 'archive.zip'), { name })];
-		if (!archive.complete) {
+		const retained = [...message.attachments.values()].filter(a => a.name !== name).map(a => ({ id: a.id }));
+		const files = tooLarge ? [] : [new AttachmentBuilder(spool(archive.id, 'archive.zip'), {
+			name,
+			description: revision,
+		})];
+		if (!archive.complete || archive.zipRevision > 0) {
 			const { renderTranscript } = require('./transcripts');
 			const {
 				fileName, transcript,
@@ -812,6 +866,7 @@ async function acquireZip(client, ticketId, maximum) {
 		};
 	}
 	readers.set(ticketId, (readers.get(ticketId) || 0) + 1);
+	const target = spool(ticketId, 'download' + (archive.zipRevision ? '-' + archive.zipRevision : '') + '.zip');
 	let released = false;
 	const release = async () => {
 		if (released) return;
@@ -821,7 +876,7 @@ async function acquireZip(client, ticketId, maximum) {
 			readers.set(ticketId, count);
 		} else {
 			readers.delete(ticketId);
-			await fs.promises.unlink(spool(ticketId, 'download.zip')).catch(() => {});
+			await fs.promises.unlink(target).catch(() => {});
 		}
 	};
 	try {
@@ -831,7 +886,6 @@ async function acquireZip(client, ticketId, maximum) {
 			return null;
 		}
 		await prepare(ticketId);
-		const target = spool(ticketId, 'download.zip');
 		if (downloadJobs.has(ticketId) || !fs.existsSync(target)) {
 			if (!downloadJobs.has(ticketId)) {
 				downloadJobs.set(ticketId, (async () => {
@@ -964,7 +1018,8 @@ async function tick(client, startup = false) {
 			take: 50,
 		});
 		for (const item of sweep) {
-			if (item.state !== 'deleting' && !await client.prisma.ticket.findUnique({
+			if (item.state === 'deleting') continue;
+			if (!await client.prisma.ticket.findUnique({
 				where: { id: item.id },
 				select: { id: true },
 			})) {
@@ -975,6 +1030,8 @@ async function tick(client, startup = false) {
 						nextAttemptAt: null,
 					},
 				});
+			} else {
+				await repairLegacySizes(client, item.id);
 			}
 		}
 		sweepCursors.set(client, sweep.length === 50 ? sweep.at(-1).id : '');
@@ -1038,6 +1095,61 @@ async function tick(client, startup = false) {
 	} finally {
 		ticks.delete(client);
 	}
+}
+async function repairLegacySizes(client, id) {
+	// Repair only existing failed jobs, once per download implementation version.
+	// Complete archives and historical tickets without a ledger are left alone.
+	if (archiveJobs.has(id) || readers.has(id)) return;
+	const where = {
+		archiveId: id,
+		downloadVersion: { lt: DOWNLOAD_VERSION },
+		errorCode: 'SIZE_MISMATCH',
+		state: { in: ['pending', 'missing'] },
+	};
+	if (!await client.prisma.driveAsset.count({ where })) return;
+	await client.prisma.$transaction(async tx => {
+		const claimed = await tx.driveArchive.updateMany({
+			where: {
+				id,
+				state: { in: ['collecting', 'ready'] },
+				AND: [
+					{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+					{ OR: [{ leaseUntil: null }, { leaseUntil: { lte: new Date() } }] },
+				],
+			},
+			data: { leaseUntil: new Date(Date.now() + 900000) },
+		});
+		if (!claimed.count) return;
+		const repaired = await tx.driveAsset.updateMany({
+			where,
+			data: {
+				state: 'pending',
+				downloadVersion: DOWNLOAD_VERSION,
+				attempts: 0,
+				nextAttemptAt: null,
+				leaseUntil: null,
+				localReady: false,
+			},
+		});
+		await tx.driveArchive.update({
+			where: { id },
+			data: {
+				...(repaired.count ? {
+					state: 'collecting',
+					zipRevision: { increment: 1 },
+					zipLocalReady: false,
+					zipSession: null,
+					zipUploadedBytes: 0,
+					complete: false,
+					discordDelivered: false,
+					nextAttemptAt: null,
+					errorCode: null,
+					attempts: 0,
+				} : {}),
+				leaseUntil: null,
+			},
+		});
+	});
 }
 async function driveStatus(client, guildId) {
 	let connected = false, error = null;

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const { createHash } = require('node:crypto');
 const { GoogleDrive } = require('../src/lib/google-drive');
 
 const session = 'https://www.googleapis.com/upload/drive/v3/files?upload_id=test-session';
@@ -43,7 +44,7 @@ function resumableServer() {
   for await (const chunk of req) chunks.push(chunk);
   const body = Buffer.concat(chunks);
   requests.push({method: req.method, range: req.headers['content-range'], authorization: req.headers.authorization});
-  if (req.method === 'POST') {
+  if (req.method === 'POST' || req.method === 'PATCH') {
    res.writeHead(200, {Location: session});
   } else if (!body.length) {
    // Google's resumable status includes a Location header on HTTP 308.
@@ -91,4 +92,52 @@ test('real fetch never follows upload redirects or forwards authorization to the
  });
  await assert.rejects(f.drive().upload(f.upload, async () => {}), error => error.code === 'UPLOAD');
  assert.equal(destinationHits, 0);
+});
+
+test('repaired ZIP updates only its private Drive file and uses checksum to survive a restart after upload',async t=>{
+ const directory=fs.mkdtempSync(path.join(path.resolve(__dirname,'../..'),'drive-replace-test-'));
+ t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+ const localPath=path.join(directory,'archive.zip'),bytes=Buffer.from('new zip'),digest=value=>createHash('md5').update(value).digest('hex');
+ fs.writeFileSync(localPath,bytes);
+ let metadata={id:'zip',size:String(bytes.length),md5Checksum:digest(Buffer.from('old zip')),parents:['folder'],appProperties:{ticketArchive:'ticket',asset:'zip'},permissions:[{role:'owner'}]};
+ const requests=[];
+ const drive=()=>new GoogleDrive({clientId:'test',clientSecret:'test',refreshToken:'test'},async(url,options)=>{
+  if(url.includes('oauth2.googleapis'))return Response.json({access_token:'token',expires_in:3600});
+  if(!url.includes('/upload/'))return Response.json(metadata);
+  requests.push({url,method:options.method});
+  if(options.method==='PATCH'){
+   assert.equal(new URL(url).pathname,'/upload/drive/v3/files/zip');
+   const body=JSON.parse(options.body);assert.equal(body.name,'ticket-42.zip');assert.equal(body.id,undefined);assert.equal(body.parents,undefined);
+   return new Response(null,{status:200,headers:{location:session}});
+  }
+  if(options.headers['Content-Length']==='0')return new Response(null,{status:308});
+  const parts=[];for await(const chunk of options.body)parts.push(chunk);assert.deepEqual(Buffer.concat(parts),bytes);
+  metadata={...metadata,size:String(bytes.length),md5Checksum:digest(bytes)};return Response.json({id:'zip'});
+ });
+ const input={fileId:'zip',parent:'folder',localPath,name:'ticket-42.zip',mime:'application/zip',ticketId:'ticket',assetId:'zip',replace:true};
+ await assert.rejects(drive().upload(input,async(url,offset)=>{if(offset===bytes.length)throw new Error('Restart after successful upload')}),/Restart/);
+ assert.equal(requests.filter(r=>r.method==='PATCH').length,1);
+ // No second upload despite the unrecorded completion, including equal old/new sizes.
+ await drive().upload({...input,session},async()=>{throw new Error('Already complete')});
+ assert.equal(requests.length,3);
+ metadata={...metadata,appProperties:{ticketArchive:'another-ticket',asset:'zip'}};
+ await assert.rejects(drive().upload(input,async()=>{}),e=>e.code==='FILE_CONFLICT');assert.equal(requests.length,3);
+ metadata={...metadata,appProperties:{ticketArchive:'ticket',asset:'zip'},permissions:[{role:'owner'},{role:'reader'}]};
+ await assert.rejects(drive().upload(input,async()=>{}),e=>e.code==='NOT_PRIVATE');assert.equal(requests.length,3);
+});
+
+test('repaired ZIP resumes an interrupted in-place update without creating another Drive file',async t=>{
+ const service=resumableServer(),f=await fixture(t,service.handler);
+ let savedSession;
+ const client=f.drive(),originalMetadata=client.metadata.bind(client);
+ client.metadata=async id=>id==='test-file'?{size:1,parents:['test-folder'],appProperties:{ticketArchive:'test-ticket',asset:'test-asset'},permissions:[{role:'owner'}]}:originalMetadata(id);
+ await assert.rejects(client.upload({...f.upload,replace:true},async(url,size)=>{
+  savedSession=url;if(size===chunkSize)throw new Error('Interrupted');
+ }),/Interrupted/);
+ const resumed=f.drive();resumed.metadata=client.metadata;
+ await resumed.upload({...f.upload,replace:true,session:savedSession},async()=>{});
+ assert.deepEqual(Buffer.concat(service.uploaded),f.bytes);
+ assert.equal(service.requests.filter(r=>r.range==='bytes */'+f.bytes.length).length,2);
+ assert.equal(service.requests.some(r=>r.method==='POST'),false);
+ assert.equal(service.requests.filter(r=>r.method==='PATCH').length,1);
 });

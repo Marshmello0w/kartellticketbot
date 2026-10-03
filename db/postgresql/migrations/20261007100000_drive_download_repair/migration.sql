@@ -1,0 +1,2 @@
+ALTER TABLE "driveAssets" ADD COLUMN "downloadVersion" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "driveArchives" ADD COLUMN "zipRevision" INTEGER NOT NULL DEFAULT 0;

@@ -113,7 +113,12 @@ async function fixture(t) {
  const files=new Map(), warnings=[]; let generated=0;
  const adapter={config:{rootFolderId:'root'},validateRoot:async()=>{if(adapter.failure)throw new DriveError(adapter.failure)},id:async()=> 'file-'+(++generated),folder:async()=>{},upload:async(input,save)=>{if(adapter.failure)throw new DriveError(adapter.failure);await save('https://www.googleapis.com/upload/drive/v3/files?upload_id=private',0);files.set(input.fileId,fs.readFileSync(input.localPath));await save(null,files.get(input.fileId).length)},download:async(id,target)=>{if(!files.has(id))throw new DriveError('MISSING');fs.writeFileSync(target,files.get(id))},remove:async(id)=>{if(adapter.deleteFailure)throw new DriveError('DELETE');files.delete(id)}};
  const messages=new Discord.Collection();
- const transcriptMessage={id:'message',author:{id:'bot'},attachments:new Discord.Collection([['html',{id:'html',name:'ticket-42.html'}]]),edit:async payload=>{transcriptMessage.payload=payload;if(payload.files)transcriptMessage.attachments.set('zip',{id:'zip',name:payload.files[0].name})}};
+ let edits=0;
+ const transcriptMessage={id:'message',author:{id:'bot'},attachments:new Discord.Collection([['html',{id:'html',name:'ticket-42.html'}]]),edit:async payload=>{
+  edits++;transcriptMessage.payload=payload;
+  for(const [key,a] of transcriptMessage.attachments)if(!payload.attachments.some(retained=>retained.id===a.id))transcriptMessage.attachments.delete(key);
+  for(const file of payload.files||[])transcriptMessage.attachments.set(file.name.endsWith('.zip')?'zip':'html',{id:'attachment-'+edits+'-'+file.name,name:file.name,description:file.description});
+ }};
  const channel={id:'523456789012345678',guildId:id,guild:{premiumTier:0},messages:{fetch:async query=>typeof query==='string'?transcriptMessage:messages}};
  const client={prisma,i18n,driveAdapter:adapter,user:{id:'bot'},config:{templates:{transcript:'transcript.md'}},guilds:{cache:new Discord.Collection([[id,{name:'Support',premiumTier:0}]])},channels:{fetch:async()=>channel},log:{warn:(...args)=>warnings.push(args.join(' ')),error(){}}};
  async function full() {return prisma.ticket.findUnique({where:{id:ticket.id},include:transcripts.transcriptInclude});}
@@ -246,12 +251,82 @@ test('SQLite: unavailable bytes produce an explicitly incomplete ZIP and HTML',s
 test('SQLite: legacy download task recovers the original attachment and resists previews from other messages',sqlite,async t=>{
  const f=await fixture(t),[asset]=await f.record();
  const original=crypt.decrypt(asset.sourceUrl),preview=original.replace('cdn.discordapp.com','media.discordapp.net')+'?format=webp&width=320';
- await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,driveFileId:null,sourceUrl:crypt.encrypt(preview),errorCode:'DOWNLOAD',attempts:40,nextAttemptAt:null}});
+ await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,driveFileId:null,sourceUrl:crypt.encrypt(preview),size:7,errorCode:'SIZE_MISMATCH',attempts:40,nextAttemptAt:null}});
  const urls=[];f.client.archiveFetch=async url=>{urls.push(url);assert.equal(url,original);return new Response(fs.readFileSync(path.join(__dirname,'../portal/static/favicon.png')))};
  await archive.processAsset(f.client,asset.id);
  const repaired=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});assert.equal(repaired.state,'ready');assert.equal(crypt.decrypt(repaired.sourceUrl),original);
+ assert.equal(repaired.size,fs.statSync(path.join(__dirname,'../portal/static/favicon.png')).size);
  await archive.captureContent(f.client,await f.full(),{author:{userId:f.userId},embeds:[{image:{url:preview}}]},'other-message');
  const kept=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});assert.equal(crypt.decrypt(kept.sourceUrl),original);assert.equal(kept.messageId,asset.messageId);assert.equal(urls.length,1);
+});
+
+test('SQLite: complete original CDN response corrects stale byte metadata without accepting truncated responses',sqlite,async t=>{
+ const f=await fixture(t),[asset]=await f.record(),bytes=fs.readFileSync(path.join(__dirname,'../portal/static/favicon.png'));
+ await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,size:7,errorCode:null,nextAttemptAt:null}});
+ f.client.archiveFetch=async(url,options)=>{
+  assert.equal(new URL(url).hostname,'cdn.discordapp.com');assert.deepEqual(options.headers,{Accept:'application/octet-stream','Accept-Encoding':'identity'});
+  return new Response(bytes,{headers:{'content-length':String(bytes.length),'content-type':'image/png'}});
+ };
+ await archive.processAsset(f.client,asset.id);
+ assert.equal((await f.prisma.driveAsset.findUnique({where:{id:asset.id}})).size,bytes.length);
+ for(const response of [
+  new Response(bytes.subarray(0,3),{headers:{'content-length':String(bytes.length)}}),
+  new Response(bytes,{status:206,headers:{'content-length':String(bytes.length)}}),
+  new Response('<html>Error</html>',{headers:{'content-type':'text/html','content-length':'18'}}),
+  new Response(bytes,{headers:{'content-length':String(1024*1024*1024)}}),
+ ]){
+  await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,errorCode:null,nextAttemptAt:null}});
+  f.client.archiveFetch=async()=>response;await archive.processAsset(f.client,asset.id);
+  const row=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});
+  assert.notEqual(row.state,'ready');assert.equal(row.localReady,false);assert.equal(fs.existsSync(archive.spool(f.ticket.id,asset.relativePath+'.part')),false);
+ }
+});
+
+test('SQLite: legacy incomplete ZIP is repaired once after restart, replaces the same Drive file and Discord attachment',sqlite,async t=>{
+ const f=await fixture(t),[asset]=await f.record();
+ f.files.delete(asset.driveFileId);
+ await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'missing',size:7,downloadVersion:0,driveFileId:null,errorCode:'SIZE_MISMATCH',attempts:3}});
+ await f.close();
+ const old=await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}}),oldBytes=f.files.get(old.zipFileId),oldAttachment=f.transcriptMessage.attachments.get('zip');
+ assert.equal(old.complete,false);assert.equal(old.discordDelivered,true);
+ // A stale manual download from before a process crash must not be reused.
+ fs.writeFileSync(archive.spool(f.ticket.id,'download.zip'),oldBytes);
+ const restored=new PrismaClient({datasources:{db:{url:process.env.TEST_DATABASE_URL}}});restored.$use(require('../src/lib/middleware/prisma-sqlite'));t.after(()=>restored.$disconnect());
+ const resumed={...f.client,prisma:restored};
+ let uploads=0,replaced=false;const upload=f.adapter.upload;
+ f.adapter.upload=async(input,save)=>{if(input.assetId==='zip'){uploads++;replaced=input.replace;assert.equal(input.fileId,old.zipFileId)}return upload(input,save)};
+ await archive.tick(resumed,true);
+ await restored.driveArchive.update({where:{id:f.ticket.id},data:{nextAttemptAt:null}});
+ await archive.tick(resumed);
+ const ready=await restored.driveArchive.findUnique({where:{id:f.ticket.id}}),repaired=await restored.driveAsset.findUnique({where:{id:asset.id}});
+ assert.equal(ready.state,'ready');assert.equal(ready.complete,true);assert.equal(ready.zipRevision,1);assert.equal(ready.expiresAt.getTime(),old.expiresAt.getTime());assert.equal(repaired.state,'ready');assert.equal(repaired.downloadVersion,1);
+ assert.equal(replaced,true);assert.equal(uploads,1);assert.notDeepEqual(f.files.get(old.zipFileId),oldBytes);
+ assert.notEqual(f.transcriptMessage.attachments.get('zip').id,oldAttachment.id);assert.equal(f.transcriptMessage.attachments.size,2);
+ assert.match(f.transcriptMessage.payload.content,/gesichert/);assert.doesNotMatch(f.transcriptMessage.payload.content,/unvollständig/);
+ const zip=await archive.acquireZip(resumed,f.ticket.id,1024*1024),entries=await require('unzipper').Open.file(zip.path);
+ assert.match(zip.path,/download-1\.zip$/);assert.equal(JSON.parse((await entries.files.find(e=>e.path==='archive-info.json').buffer()).toString()).complete,true);
+ assert.doesNotMatch((await entries.files.find(e=>e.path==='transcript.html').buffer()).toString(),/Archiv ist unvollständig/);await zip.release();
+ // Discord edit succeeded, then the process stopped before recording delivery.
+ await restored.driveArchive.update({where:{id:f.ticket.id},data:{discordDelivered:false,nextAttemptAt:null}});
+ const payload=f.transcriptMessage.payload;await archive.tick(resumed,true);
+ assert.equal(f.transcriptMessage.payload,payload);assert.equal(uploads,1);assert.equal((await restored.driveArchive.findUnique({where:{id:f.ticket.id}})).discordDelivered,true);
+});
+
+test('SQLite: repair does not loop new failures, revive expired archives or create ledgers for historical tickets',sqlite,async t=>{
+ const f=await fixture(t);await f.record(false);await archive.ensureArchive(f.client,await f.full());
+ const id='permanent-'+f.ticket.id;
+ await f.prisma.driveAsset.create({data:{id,archiveId:f.ticket.id,assetKey:'attachment:999',sourceUrl:crypt.encrypt('https://cdn.discordapp.com/attachments/'+f.ticket.id+'/999/image.png'),fileName:'image.png',relativePath:'files/image.png',size:4,mime:'image/png',state:'missing',errorCode:'SIZE_MISMATCH',attempts:3,downloadVersion:1}});
+ await f.close();let requests=0;f.client.archiveFetch=async()=>{requests++;return new Response(Buffer.from('wrong'))};
+ await archive.tick(f.client,true);await archive.tick(f.client,true);assert.equal(requests,0);
+ await f.prisma.driveAsset.update({where:{id},data:{downloadVersion:0}});
+ await f.prisma.driveArchive.update({where:{id:f.ticket.id},data:{expiresAt:new Date(Date.now()-1000)}});
+ await archive.tick(f.client,true);assert.equal(requests,0);assert.equal((await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}})).state,'deleted');
+ await f.prisma.driveArchive.delete({where:{id:f.ticket.id}});await archive.tick(f.client,true);
+ assert.equal(await f.prisma.driveArchive.count({where:{id:f.ticket.id}}),0);
+ for(const provider of ['sqlite','mysql','postgresql']){
+  const migration=fs.readFileSync(path.join(__dirname,'../db/'+provider+'/migrations/20261007100000_drive_download_repair/migration.sql'),'utf8');
+  assert.match(migration,/downloadVersion/);assert.match(migration,/zipRevision/);
+ }
 });
 
 test('SQLite: repeated inconsistent file sizes finish as an explicitly incomplete archive rather than retry forever',sqlite,async t=>{

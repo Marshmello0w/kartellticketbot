@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { createHash } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
@@ -74,7 +75,7 @@ class GoogleDrive {
 		return (await response.json()).ids[0];
 	}
 	async metadata(id) {
-		const response = await this.request('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=id,name,parents,mimeType,trashed,appProperties,size,capabilities(canAddChildren,canDownload),permissions(type,role)');
+		const response = await this.request('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=id,name,parents,mimeType,trashed,appProperties,size,md5Checksum,capabilities(canAddChildren,canDownload),permissions(type,role)');
 		if (response.status === 404) return null;
 		return response.json();
 	}
@@ -106,28 +107,37 @@ class GoogleDrive {
 		if (response.status === 409) return this.folder(id, name, parent, ticketId);
 	}
 	async upload({
-		fileId, parent, localPath, name, mime, ticketId, assetId, session,
+		fileId, parent, localPath, name, mime, ticketId, assetId, session, replace = false,
 	}, saveProgress) {
 		const existing = await this.metadata(fileId);
 		const size = (await fs.promises.stat(localPath)).size;
-		if (existing && !existing.trashed) {
-			if (!existing.parents?.includes(parent) || existing.appProperties?.ticketArchive !== ticketId || existing.appProperties?.asset !== assetId || Number(existing.size) !== size) throw new DriveError('FILE_CONFLICT');
+		const updating = existing && !existing.trashed;
+		if (updating) {
+			if (!existing.parents?.includes(parent) || existing.appProperties?.ticketArchive !== ticketId || existing.appProperties?.asset !== assetId) throw new DriveError('FILE_CONFLICT');
 			if ((existing.permissions || []).some(p => p.role !== 'owner')) throw new DriveError('NOT_PRIVATE');
-			return;
+			if (!replace) {
+				if (Number(existing.size) !== size) throw new DriveError('FILE_CONFLICT');
+				return;
+			}
+			const checksum = createHash('md5');
+			for await (const chunk of fs.createReadStream(localPath)) checksum.update(chunk);
+			if (Number(existing.size) === size && existing.md5Checksum === checksum.digest('hex')) return;
 		}
 		if (!session) {
-			const response = await this.request('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,size', {
-				method: 'POST',
+			const response = await this.request('https://www.googleapis.com/upload/drive/v3/files' + (updating ? '/' + encodeURIComponent(fileId) : '') + '?uploadType=resumable&fields=id,size', {
+				method: updating ? 'PATCH' : 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 					'X-Upload-Content-Type': mime,
 					'X-Upload-Content-Length': String(size),
 				},
 				body: JSON.stringify({
-					id: fileId,
 					name,
-					parents: [parent],
 					mimeType: mime,
+					...(!updating ? {
+						id: fileId,
+						parents: [parent],
+					} : {}),
 					appProperties: {
 						ticketArchive: ticketId,
 						asset: assetId,
