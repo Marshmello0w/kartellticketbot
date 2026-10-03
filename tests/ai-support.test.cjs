@@ -91,6 +91,29 @@ test('SQLite: free first, quota fallback, durable usage after restart and free q
  } finally { await restarted.$disconnect(); }
  assert.equal((await G.generate(db, 'next-day', 'FAQ', [], cfg, fetcher, new Date(+now + 86400001))).tier, 'free');
 });
+
+test('SQLite: dotted authorization keys load unchanged; free-only quotas hand off without billing', sqlite, async t => {
+ const db = await database(t), file = path.join(__dirname, '../user/test-gemini-auth-config.json');
+ const previous = process.env.GEMINI_SUPPORT_CONFIG; process.env.GEMINI_SUPPORT_CONFIG = file;
+ const authKey = 'AQ.' + 'synthetic_auth_key-only_for_tests_1234567890';
+ const input = { freeKey: authKey, freeProjectHasNoBilling: true, paidKey: '', paidCreditConfirmed: false, paidProjectOnlyForThisBot: false, recurringCreditsAppliedAutomatically: false, monthlyUsd: 9.5, creditRenewalDay: 1 };
+ try {
+  fs.writeFileSync(file, JSON.stringify(input));
+  const config = G.configuration(); assert.equal(config.freeKey, authKey); assert.equal(config.paidKey, null); assert.equal(config.error, undefined);
+  let calls = 0;
+  const fetcher = async (url, options) => { calls++; assert.equal(options.headers['x-goog-api-key'], authKey); assert.ok(!url.includes(authKey)); return response(calls === 1 ? 200 : 429, calls === 1 ? good('Kostenlos') : quota); };
+  assert.equal((await G.generate(db, 'auth-free', 'FAQ', [], config, fetcher, now)).tier, 'free');
+  assert.equal((await G.generate(db, 'auth-quota', 'FAQ', [], G.configuration(), fetcher, now)).action, 'human');
+  assert.equal((await G.generate(db, 'auth-blocked', 'FAQ', [], G.configuration(), fetcher, now)).reason, 'QUOTA');
+  assert.equal(calls, 2); assert.equal(await db.aiCharge.count(), 0); assert.equal(await db.aiBudget.count(), 0);
+  const paid = { ...input, paidKey: 'AQ.' + 'synthetic_paid_key-only_for_tests_1234567890', paidCreditConfirmed: true, paidProjectOnlyForThisBot: true, recurringCreditsAppliedAutomatically: true };
+  fs.writeFileSync(file, JSON.stringify(paid)); assert.equal(G.configuration().paidKey, paid.paidKey);
+  for (const freeKey of [authKey + '\n', authKey + ' ', 'AQ.unsafe\r\nInjected: header']) { fs.writeFileSync(file, JSON.stringify({ ...input, freeKey })); assert.equal(G.configuration().error, 'FREE_CONFIG'); }
+  const safeText = load('src/lib/faq-learning.js', { './ai-language': Language }).safeText;
+  const sanitized = safeText('Key: ' + authKey + '\nLegacy: AIza' + 'x'.repeat(35));
+  assert.ok(!sanitized.includes(authKey)); assert.ok(!sanitized.includes('AIza')); assert.ok(sanitized.includes('[Zugangsdaten]'));
+ } finally { fs.rmSync(file, { force: true }); if (previous === undefined) delete process.env.GEMINI_SUPPORT_CONFIG; else process.env.GEMINI_SUPPORT_CONFIG = previous; }
+});
 test('SQLite: budget precedes requests, concurrent reservations, idempotent settlement and renewal', sqlite, async t => {
  const db = await database(t), body = G.bodyFor('FAQ', []), amount = G.reservation(body), config = { ...cfg, monthlyMicros: G.reservation(body) };
  const charges = await Promise.all([G.reserve(db, 'one', config, body, now), G.reserve(db, 'two', config, body, now)]); assert.equal(charges.filter(Boolean).length, 1);

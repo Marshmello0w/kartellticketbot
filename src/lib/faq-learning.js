@@ -22,7 +22,7 @@ function safeText(value) {
 		.replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, '[Discord-Verweis]')
 		.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[E-Mail-Adresse]')
 		.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP-Adresse]')
-		.replace(/\bAIza[\w-]{20,}|\b[\w-]{24,}\.[\w-]{6,}\.[\w-]{25,}\b/g, '[Zugangsdaten]')
+		.replace(/\b(?:AIza[\w-]{20,}|AQ\.[\w-]{20,})|\b[\w-]{24,}\.[\w-]{6,}\.[\w-]{25,}\b/g, '[Zugangsdaten]')
 		.replace(/\b(?:password|passwort|secret|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token)\s*[:=]\s*\S+/gi, '[Zugangsdaten entfernt]')
 		.replace(/([?&](?:token|key|secret|auth|signature|password)=)[^&\s]+/gi, '$1[entfernt]')
 		.replace(/\b\d{17,20}\b/g, '[Discord-ID]');

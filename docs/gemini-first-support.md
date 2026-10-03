@@ -34,6 +34,11 @@ neben `src`, `db`, `node_modules` und `.env` im Bot-Verzeichnis.
 Alternativ verweist `GEMINI_SUPPORT_CONFIG` in der Umgebung auf einen anderen
 geschützten Dateipfad. Der Bot liest die Datei bei jeder Anfrage neu.
 
+Schlüssel mit Punkt (z. B. das neuere `AQ.`-Format) und bisherige Schlüssel werden
+unterstützt. Den vollständigen Schlüssel unverändert eintragen. Für ausschließlich
+kostenlosen Support bleibt `paidKey` leer; die bezahlten Bestätigungen bleiben `false`.
+Dann führt ein ausgeschöpftes Gratis-Kontingent direkt zur Übergabe an einen Menschen.
+
 - `freeProjectHasNoBilling`: erst auf `true` setzen, wenn das kostenlose Projekt
   tatsächlich ohne Abrechnung eingerichtet ist.
 - `paidCreditConfirmed`: nur auf `true` setzen, wenn das Abo-Guthaben eingelöst und

@@ -14,7 +14,8 @@ function configuration() {
 	try {
 		const path = process.env.GEMINI_SUPPORT_CONFIG || './user/gemini-support.json';
 		const input = JSON.parse(fs.readFileSync(path, 'utf8'));
-		const key = value => typeof value === 'string' && /^[\w-]{20,200}$/.test(value) ? value : null;
+		// Authorization keys can contain a dot; keep both supported formats intact.
+		const key = value => typeof value === 'string' && /^[\w.-]{20,200}$/.test(value) ? value : null;
 		const freeKey = key(input.freeKey);
 		const paidKey = key(input.paidKey);
 		const valid = input.freeProjectHasNoBilling === true && freeKey;
