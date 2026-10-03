@@ -228,6 +228,7 @@ module.exports = class extends Listener {
 							});
 						}
 						ticket = await client.prisma.ticket.findUnique({ where: { id: ticket.id } });
+						await require('../../lib/ai-support').enqueue(client, ticket.id, message).catch(() => client.log.warn('AI support queue could not accept a message for ticket %s', ticket.id));
 					}
 				}
 

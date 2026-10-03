@@ -1,0 +1,10 @@
+{
+  "freeKey": "KOSTENLOSEN_API_SCHLUESSEL_HIER_EINTRAGEN",
+  "freeProjectHasNoBilling": false,
+  "paidKey": "",
+  "paidCreditConfirmed": false,
+  "paidProjectOnlyForThisBot": false,
+  "recurringCreditsAppliedAutomatically": false,
+  "monthlyUsd": 9.5,
+  "creditRenewalDay": 1
+}

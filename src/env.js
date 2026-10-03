@@ -25,6 +25,7 @@ const env = {
 		new Error('is required and must be at least 48 characters long; run "npm run keygen" to generate a key'),
 	GUILD_ID: v => !v || /^\d{17,20}$/.test(v) || new Error('must be a Discord server ID (17-20 digits)'),
 	GOOGLE_DRIVE_AUTH_FILE: () => true, // optional private credential file
+	GEMINI_SUPPORT_CONFIG: () => true, // optional private AI credential file
 	HTTP_EXTERNAL: v => {
 		if (v?.endsWith('/')) {
 			v = v.slice(0, -1);

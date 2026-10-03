@@ -30,6 +30,7 @@ function flatten(object, prefix = '', result = {}) {
 
 function getLimit(key) {
 	if (key.startsWith('buttons.')) return 80;
+	if (key.startsWith('ticket.ai.')) return key.endsWith('_title') || key.endsWith('.title') ? 256 : 2000;
 	if (key.startsWith('modals.')) return key.endsWith('.placeholder') ? 100 : 45;
 	if (key.startsWith('menus.support.options.')) return 100;
 	if (key.startsWith('menus.')) return 150;

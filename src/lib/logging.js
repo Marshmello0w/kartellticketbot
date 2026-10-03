@@ -29,8 +29,10 @@ function makeDiff({
 	const fields = [];
 	for (const key in diff) {
 		if (key === 'createdAt') continue; // object-diffy doesn't like dates
-		const from = exists(diff[key].from) ? `- ${String(diff[key].from).replace(/\n/g, '\\n')}\n` : '';
-		const to = exists(diff[key].to) ? `+ ${String(diff[key].to).replace(/\n/g, '\\n')}\n` : '';
+		// Long support knowledge must fit Discord's field limit and stay in the portal.
+		const format = value => key === 'aiKnowledge' ? `${String(value).length} characters` : String(value).replace(/\n/g, '\\n');
+		const from = exists(diff[key].from) ? `- ${format(diff[key].from)}\n` : '';
+		const to = exists(diff[key].to) ? `+ ${format(diff[key].to)}\n` : '';
 		fields.push({
 			inline: true,
 			name: key.replace(uuidRegex, $1 => $1.split('-')[0]),

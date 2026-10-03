@@ -128,6 +128,10 @@ module.exports = class extends Listener {
 		};
 		refreshTickets(true);
 		setInterval(() => refreshTickets(false), 30000);
+		const { tick: aiTick } = require('../../lib/ai-support');
+		const checkAI = () => aiTick(client).catch(() => client.log.warn('AI support worker check failed'));
+		checkAI();
+		setInterval(checkAI, 5000);
 
 		// stats posting
 		if (client.config.stats) {

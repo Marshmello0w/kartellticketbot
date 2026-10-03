@@ -70,6 +70,8 @@
 	});
 
 	category.cooldown = category.cooldown ? ms(category.cooldown) : '';
+	category.aiSupportEnabled = category.aiSupportEnabled ?? true;
+	category.aiKnowledge = category.aiKnowledge ?? '';
 
 	let error = $state(null);
 	let loadingSubmit = $state(false);
@@ -193,6 +195,14 @@
 		<ErrorBox {error} />
 	{/if}
 	<form onsubmit={preventDefault(() => submit())} onchange={() => (modified = true)} class="my-4">
+		<section class="mb-6 rounded-lg border border-gray-300 p-4 dark:border-slate-600">
+			<h3 class="mb-3 font-semibold">KI-Erstsupport</h3>
+			<label class="flex items-center gap-3"><input type="checkbox" class="form-checkbox" bind:checked={category.aiSupportEnabled} /><span>KI in dieser Kategorie zulassen</span></label>
+			<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Zusätzlich muss die KI in den allgemeinen Servereinstellungen aktiviert sein.</p>
+			<label for="ai-category-knowledge" class="mt-4 block font-medium">Eigene FAQ und Regeln</label>
+			<textarea id="ai-category-knowledge" class="input form-textarea mt-2 min-h-40 font-normal" bind:value={category.aiKnowledge} maxlength="12000" placeholder="Leer lassen, um das Supportwissen aus den Servereinstellungen zu verwenden."></textarea>
+			<p class="mt-1 text-sm text-gray-500 dark:text-slate-400">Zum Beispiel deutsche Antworten in einer Kategorie und englische Antworten in der anderen. Die KI antwortet in der Sprache der Nutzerfrage. Schaltflächen und Hinweise änderst du weiterhin im Bereich „Texte“.</p>
+		</section>
 		<div class="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-12">
 			<div class="grid grid-cols-1 gap-8">
 				<div>

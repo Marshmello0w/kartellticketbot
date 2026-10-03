@@ -80,6 +80,7 @@ module.exports.post = fastify => ({
 		const user = await client.users.fetch(req.user.id);
 		const guild = client.guilds.cache.get(req.params.guild);
 		const data = { ...req.body };
+		require('../../../../../../lib/ai-support').validateSettings(data);
 		delete data.textOverrides;
 		const allow = ['ViewChannel', 'ReadMessageHistory', 'SendMessages', 'EmbedLinks', 'AttachFiles'];
 

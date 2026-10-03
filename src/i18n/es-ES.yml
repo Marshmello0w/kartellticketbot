@@ -229,6 +229,8 @@ commands:
         description: Solo los miembros del staff pueden abrir tickets para otros usuarios.
         title: ❌ Error
 buttons:
+  ai_human:
+    text: Request a supporter
   confirm_open:
     text: Crear ticket
     emoji: ✅
@@ -260,6 +262,14 @@ buttons:
     text: Transcripción
     emoji: 📄
 ticket:
+  ai:
+    title: "AI first-line support"
+    disclaimer: "AI assistance based on support knowledge. You can ask for a human at any time."
+    handoff_title: "A supporter will take over"
+    handoff: "I am handing this ticket to our support team. A person will help you here."
+    handoff_marker: "Human support requested"
+    denied: "Only the ticket creator or a supporter can request this handover."
+    requested: "A supporter will take over this ticket."
   working_hours:
     today:
       title: 🕗 No estamos trabajando en este momento

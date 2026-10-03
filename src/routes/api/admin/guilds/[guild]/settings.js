@@ -21,6 +21,7 @@ module.exports.get = fastify => ({
 module.exports.patch = fastify => ({
 	handler: async req => {
 		const data = { ...req.body };
+		require('../../../../../lib/ai-support').validateSettings(data);
 		if (data.transcriptChannel === '') data.transcriptChannel = null;
 		if (data.ticketOverviewChannel === '') data.ticketOverviewChannel = null;
 		if (Object.hasOwn(data, 'automaticTicketStatus') && typeof data.automaticTicketStatus !== 'boolean') throw Object.assign(new Error('Ungültiger Antwortstatus-Schalter.'), { statusCode: 400 });
@@ -38,6 +39,7 @@ module.exports.patch = fastify => ({
 		const client = req.routeOptions.config.client;
 		const id = req.params.guild;
 		const original = await client.prisma.guild.findUnique({ where: { id } });
+		if (data.aiSupportEnabled && require('../../../../../lib/gemini-support').configuration().error) throw Object.assign(new Error('Bitte zuerst den kostenlosen Gemini-Zugang in user/gemini-support.json einrichten.'), { statusCode: 400 });
 		if (Object.hasOwn(data, 'driveArchiveEnabled')) {
 			if (typeof data.driveArchiveEnabled !== 'boolean') throw Object.assign(new Error('Ungültiger Drive-Schalter.'), { statusCode: 400 });
 			if (data.driveArchiveEnabled) {

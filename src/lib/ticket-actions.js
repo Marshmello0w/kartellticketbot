@@ -51,6 +51,14 @@ async function performAction(client, {
 			ticket, guild, channel, actor, admin,
 		} = await context(client, guildId, ticketId, actorId, action === 'transfer');
 		const original = {}, updated = {};
+		// Team actions permanently end automated triage for this ticket.
+		await client.prisma.ticket.updateMany({
+			where: {
+				id: ticketId,
+				open: true,
+			},
+			data: { aiState: 'human' },
+		});
 		if (['claim', 'release', 'handoff'].includes(action)) {
 			if (action === 'claim' && ticket.claimedById) fail('assigned');
 			if (action !== 'claim' && (!ticket.claimedById || ticket.claimedById !== actorId && !admin)) fail('assigned');
@@ -77,7 +85,10 @@ async function performAction(client, {
 					open: true,
 					claimedById: ticket.claimedById,
 				},
-				data: { claimedById: targetId },
+				data: {
+					claimedById: targetId,
+					aiState: 'human',
+				},
 			});
 			if (!claimed.count) fail('changed');
 			try {

@@ -62,6 +62,7 @@ module.exports = class TicketManager {
 		const result = await this.client.prisma.ticket.updateMany({
 			data: {
 				closeRequestedAt: now,
+				aiState: 'human',
 				closeScheduledAt: ticket.guild.autoClose ? new Date(now.getTime() + ticket.guild.autoClose) : null,
 				closeRequestedById: closedBy || null,
 				closeRequestReason: reason ? await crypto.queue(w => w.encrypt(reason)) : null,
@@ -727,6 +728,7 @@ module.exports = class TicketManager {
 
 		const data = {
 			category: { connect: { id: categoryId } },
+			aiState: category.guild.aiSupportEnabled && category.aiSupportEnabled ? 'active' : 'human',
 			createdBy: {
 				connectOrCreate: {
 					create: { id: interaction.user.id },
@@ -765,6 +767,9 @@ module.exports = class TicketManager {
 				}).catch(() => this.client.log.warn('Drive archive registration failed for ticket %s', ticket.id));
 			}
 			requestSync(this.client, ticket.id);
+			if (category.guild.aiSupportEnabled && category.aiSupportEnabled) {
+				require('../ai-support').enqueue(this.client, ticket.id).catch(() => this.client.log.warn('AI support initialization pending for ticket %s', ticket.id));
+			}
 			this.$count.categories[categoryId].total++;
 			this.$count.categories[categoryId][creator.id]++;
 

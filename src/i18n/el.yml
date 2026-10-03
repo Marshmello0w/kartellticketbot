@@ -1,3 +1,5 @@
 buttons:
+  ai_human:
+    text: Request a supporter
   accept_close_request:
     emoji: ✅

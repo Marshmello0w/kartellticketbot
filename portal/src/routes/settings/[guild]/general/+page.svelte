@@ -6,6 +6,7 @@
 	import ms from 'ms';
 	import { fade } from 'svelte/transition';
 	import Required from '$components/Required.svelte';
+	import AiSupportSettings from '$components/AiSupportSettings.svelte';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import ErrorBox from '$components/ErrorBox.svelte';
@@ -52,6 +53,8 @@
 	settings.transcriptChannel = settings.transcriptChannel ?? '';
 	settings.ticketOverviewChannel = settings.ticketOverviewChannel ?? '';
 	settings.automaticTicketStatus = settings.automaticTicketStatus ?? true;
+	settings.aiSupportEnabled = settings.aiSupportEnabled ?? false;
+	settings.aiKnowledge = settings.aiKnowledge ?? '';
 	settings.staleAfter = settings.staleAfter ? ms(settings.staleAfter) : '';
 	settings.workingHours = settings.workingHours.map((v) => (v === null ? [] : v));
 
@@ -168,6 +171,7 @@
 	</div>
 	<form onsubmit={preventDefault(() => submit())} onchange={() => (modified = true)}>
 		<div class="my-4 grid grid-cols-1 gap-8">
+			<AiSupportSettings bind:settings guildId={$page.params.guild} />
 			<div>
 				<label class="font-medium">
 					Auto close after

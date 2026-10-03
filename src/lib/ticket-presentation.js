@@ -429,6 +429,7 @@ async function recordParticipant(client, ticketId, userId, at = new Date(), mess
 		},
 		data: {
 			lastParticipantAt: at,
+			...(side === 'STAFF' ? { aiState: 'human' } : {}),
 			lastParticipantSide: side,
 			lastParticipantMessageId: messageId,
 			lastMessageAt: at,

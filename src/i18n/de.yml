@@ -1,4 +1,6 @@
 buttons:
+  ai_human:
+    text: Supporter anfordern
   cancel:
     emoji: ➖
     text: Abbrechen
@@ -427,6 +429,14 @@ modals:
     label: Thema
     placeholder: Worum geht es in diesem Ticket?
 ticket:
+  ai:
+    title: "KI-Erstsupport"
+    disclaimer: "KI-Hilfe auf Basis unseres Supportwissens. Du kannst jederzeit einen Menschen anfordern."
+    handoff_title: "Ein Supporter übernimmt"
+    handoff: "Ich gebe dieses Ticket an unser Supportteam weiter. Ein Mensch hilft dir hier weiter."
+    handoff_marker: "Menschlicher Support angefordert"
+    denied: "Nur der Ticket-Ersteller oder ein Supporter kann diese Übergabe anfordern."
+    requested: "Ein Supporter übernimmt dieses Ticket."
   transcript:
     title: "Transkript für Ticket #{number}"
     creator: Erstellt von

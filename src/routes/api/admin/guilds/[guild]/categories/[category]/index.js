@@ -75,9 +75,12 @@ module.exports.patch = fastify => ({
 		/** @type {import('discord.js').Guild} */
 		const guild = client.guilds.cache.get(req.params.guild);
 		const data = { ...req.body };
+		require('../../../../../../../lib/ai-support').validateSettings(data);
 		delete data.textOverrides;
 
 		const select = {
+			aiSupportEnabled: true,
+			aiKnowledge: true,
 			channelName: true,
 			claiming: true,
 			// createdAt: true,

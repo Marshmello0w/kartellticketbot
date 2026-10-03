@@ -6,6 +6,8 @@ export async function load({ fetch, params }) {
 	let body;
 	if (params.category === 'new') {
 		body = {
+			aiSupportEnabled: true,
+			aiKnowledge: '',
 			channelName: '',
 			claiming: false,
 			description: '',

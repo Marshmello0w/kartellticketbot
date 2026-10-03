@@ -92,6 +92,8 @@ There are 3 ways to get started with Discord Tickets:
 
 **[Read the documentation](https://discordtickets.app/getting-started/)** for more information.
 
+Für diesen Fork: [Gemini-Erstsupport mit kostenlosem Zugang, begrenztem Abo-Guthaben und Übergabe ans Team einrichten](docs/gemini-first-support.md).
+
 > This button is here because it looks nice, but I will cry if you click it before reading the [documentation](https://discordtickets.app/getting-started/). :)
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template/eB6TkX?referralCode=Z3aYd2)

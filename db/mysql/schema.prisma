@@ -69,6 +69,8 @@ model ArchivedUser {
 }
 
 model Category {
+    aiSupportEnabled Boolean @default(true)
+    aiKnowledge String @default("") @db.Text
     textOverrides   Json     @default("{}")
     channelName     String
     claiming        Boolean    @default(false)
@@ -113,6 +115,8 @@ model Feedback {
 }
 
 model Guild {
+    aiSupportEnabled Boolean @default(false)
+    aiKnowledge String @default("") @db.Text
     driveArchiveEnabled Boolean @default(false)
     ticketOverviewChannel String?
     automaticTicketStatus Boolean @default(true)
@@ -247,6 +251,9 @@ model Tag {
 }
 
 model Ticket {
+    aiLeaseUntil DateTime?
+    aiState String @default("active")
+    aiReplies Int @default(0)
     channelDeletePending Boolean @default(false)
     closeCapturePending Boolean @default(false)
     channelDeleteAttempts Int @default(0)
@@ -306,6 +313,54 @@ model Ticket {
     @@unique([guildId, number])
     @@index([channelDeletePending, channelDeleteNextAttemptAt])
     @@map("tickets")
+}
+
+model AiBudget {
+    id String @id
+    startsAt DateTime
+    endsAt DateTime
+    spentMicros Int @default(0)
+    blocked Boolean @default(false)
+
+    @@index([endsAt])
+    @@map("aiBudgets")
+}
+
+model AiCharge {
+    id String @id
+    budgetId String
+    amountMicros Int
+    settled Boolean @default(false)
+    createdAt DateTime @default(now())
+
+    @@map("aiCharges")
+}
+
+model AiProvider {
+    id String @id
+    blockedUntil DateTime?
+    errorCode String?
+
+    @@map("aiProviders")
+}
+
+model AiTask {
+    id String @id
+    ticketId String
+    guildId String
+    userId String
+    state String @default("queued")
+    initial Boolean @default(false)
+    createdAt DateTime @default(now())
+    leaseUntil DateTime?
+    response String? @db.Text
+    tier String?
+    errorCode String?
+    discordMessageId String?
+
+    @@index([state, createdAt])
+    @@index([ticketId])
+    @@map("aiTasks")
 }
 
 model User {

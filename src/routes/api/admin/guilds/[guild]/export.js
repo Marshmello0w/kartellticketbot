@@ -97,6 +97,7 @@ module.exports.get = fastify => ({
 
 		delete settings.id;
 		delete settings.driveArchiveEnabled;
+		delete settings.aiSupportEnabled;
 
 		settings.categories = settings.categories.map(c => {
 			delete c.guildId;

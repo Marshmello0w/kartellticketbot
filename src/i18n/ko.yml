@@ -1,4 +1,6 @@
 buttons:
+  ai_human:
+    text: Request a supporter
   create:
     emoji: 🎫
     text: 티켓 만들기
@@ -248,6 +250,14 @@ commands:
         title: ✅ 프롬포트 전송됨
         description: '{user}이(가) **{category}**에서 티켓을 생성하도록 초대되었습니다.'
 ticket:
+  ai:
+    title: "AI first-line support"
+    disclaimer: "AI assistance based on support knowledge. You can ask for a human at any time."
+    handoff_title: "A supporter will take over"
+    handoff: "I am handing this ticket to our support team. A person will help you here."
+    handoff_marker: "Human support requested"
+    denied: "Only the ticket creator or a supporter can request this handover."
+    requested: "A supporter will take over this ticket."
   references_ticket:
     fields:
       number: 번호

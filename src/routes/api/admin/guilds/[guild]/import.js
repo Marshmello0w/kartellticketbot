@@ -76,6 +76,7 @@ module.exports.post = fastify => ({
 			Object.freeze(settingsJSON);
 			const settings = structuredClone(settingsJSON);
 			settings.driveArchiveEnabled = false; // Account-specific archive transport is never restored from a backup.
+			settings.aiSupportEnabled = false;
 			const { categories } = settings;
 			delete settings.categories; // this also mutates `settings`
 

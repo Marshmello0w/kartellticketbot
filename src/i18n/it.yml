@@ -1,4 +1,6 @@
 buttons:
+  ai_human:
+    text: Request a supporter
   accept_close_request:
     emoji: ✅
     text: Accetta
@@ -409,6 +411,14 @@ modals:
     label: Topic
     placeholder: Di che cosa parla questo ticket?
 ticket:
+  ai:
+    title: "AI first-line support"
+    disclaimer: "AI assistance based on support knowledge. You can ask for a human at any time."
+    handoff_title: "A supporter will take over"
+    handoff: "I am handing this ticket to our support team. A person will help you here."
+    handoff_marker: "Human support requested"
+    denied: "Only the ticket creator or a supporter can request this handover."
+    requested: "A supporter will take over this ticket."
   answers:
     no_value: "*Nessuna risposta*"
   claimed: 🙌 {user} ha preso in carica questo ticket.
