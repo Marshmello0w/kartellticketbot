@@ -2,11 +2,12 @@ const { createHash } = require('node:crypto');
 const {
 	ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags,
 } = require('discord.js');
-const { getSupportMessages } = require('./support-texts');
+const { createTranslator } = require('./support-texts');
 const {
 	participantSide, requestSync,
 } = require('./ticket-presentation');
 const Gemini = require('./gemini-support');
+const Language = require('./ai-language');
 
 const include = {
 	guild: true,
@@ -20,6 +21,7 @@ const LEASE_MS = 5 * 60000;
 function validateSettings(data) {
 	if (Object.hasOwn(data, 'aiSupportEnabled') && typeof data.aiSupportEnabled !== 'boolean') throw Object.assign(new Error('Ungültiger KI-Schalter.'), { statusCode: 400 });
 	if (Object.hasOwn(data, 'aiKnowledge') && (typeof data.aiKnowledge !== 'string' || data.aiKnowledge.length > 12000)) throw Object.assign(new Error('Supportwissen darf höchstens 12.000 Zeichen enthalten.'), { statusCode: 400 });
+	if (Object.hasOwn(data, 'aiResponseLanguage') && !['auto', 'de', 'en'].includes(data.aiResponseLanguage)) throw Object.assign(new Error('Ungültige KI-Antwortsprache.'), { statusCode: 400 });
 }
 function enabled(ticket) {
 	return ticket?.open && !ticket.deleted && ticket.guild.aiSupportEnabled && ticket.category?.aiSupportEnabled && ticket.aiState === 'active' && !ticket.claimedById && !ticket.closeRequestedAt;
@@ -34,6 +36,11 @@ async function enqueue(client, ticketId, message = null) {
 	});
 	if (!enabled(ticket)) return;
 	if (message && (message.author.bot || message.webhookId || message.system || await participantSide(client, ticket, message.author.id) !== 'USER')) return;
+	// Existing tickets may have older creator messages from before this feature.
+	if (message?.author.id === ticket.createdById && !ticket.aiLanguage && !ticket.aiLanguageSeed) {
+		await Language.context(client, ticket, await client.channels.fetch(ticket.id));
+	}
+	await Language.capture(client, ticket, message);
 	const id = message?.id || 'initial-' + ticketId;
 	await client.prisma.aiTask.upsert({
 		where: { id },
@@ -143,6 +150,7 @@ async function transcriptContext(client, ticket, task, channel) {
 	const context = {
 		category: ticket.category?.name || '',
 		conversation: conversation.slice(-12),
+		...await Language.context(client, ticket, channel),
 	};
 	if (ticket.topic) context.topic = String(await decrypt(ticket.topic)).slice(0, 3000);
 	context.answers = [];
@@ -206,7 +214,12 @@ async function findDelivery(client, ticket, task, channel, marker) {
 	}
 }
 async function deliver(client, ticket, task, channel) {
-	const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
+	const language = ticket.aiLanguage || Language.configured(ticket.category);
+	const locale = language === 'en' ? 'en-GB' : language === 'de' ? 'de' : ticket.guild.locale;
+	const getMessage = createTranslator(client.i18n, {
+		...ticket.guild,
+		locale,
+	}, ticket.category);
 	const handoff = task.state === 'handoff';
 	if (!ticket.open || (!handoff && !enabled(ticket))) {
 		await client.prisma.aiTask.updateMany({
@@ -336,7 +349,8 @@ async function processTask(client, task, generator) {
 				});
 				return;
 			}
-			if (ticket.aiReplies >= MAX_REPLIES || !knowledge(ticket)) return await human(client, ticket, task, ticket.aiReplies >= MAX_REPLIES ? 'LIMIT' : 'KNOWLEDGE');
+			const supportKnowledge = [knowledge(ticket), await require('./faq-learning').getKnowledge(client.prisma, ticket)].filter(Boolean).join('\n\n');
+			if (ticket.aiReplies >= MAX_REPLIES || !supportKnowledge) return await human(client, ticket, task, ticket.aiReplies >= MAX_REPLIES ? 'LIMIT' : 'KNOWLEDGE');
 			const context = await transcriptContext(client, ticket, task, channel);
 			if (context.staff) return await stop(client, ticket.id);
 			if (context.missing) {
@@ -356,6 +370,13 @@ async function processTask(client, task, generator) {
 				}
 				return await human(client, ticket, task, 'ATTACHMENT');
 			}
+			if (!context.responseLanguage && !context.creatorFirstText.trim()) {
+				await client.prisma.aiTask.updateMany({
+					where: { id: task.id },
+					data: { state: 'cancelled' },
+				});
+				return;
+			}
 			const claim = await client.prisma.aiTask.updateMany({
 				where: {
 					id: task.id,
@@ -372,7 +393,8 @@ async function processTask(client, task, generator) {
 				include,
 			});
 			if (!enabled(ticket)) return await stop(client, ticket.id);
-			const result = await generator(client.prisma, task.id, knowledge(ticket), context);
+			const result = await generator(client.prisma, task.id, supportKnowledge, context);
+			await Language.pin(client, ticket.id, result.language);
 			if (result.action !== 'answer') return await human(client, ticket, task, result.reason || 'MODEL');
 			const protectedResponse = await require('./threads').pools.crypto.queue(worker => worker.encrypt(result.text));
 			const saved = await client.prisma.aiTask.updateMany({
@@ -388,6 +410,10 @@ async function processTask(client, task, generator) {
 			});
 			if (!saved.count) return;
 			task = await client.prisma.aiTask.findUnique({ where: { id: task.id } });
+			ticket = await client.prisma.ticket.findUnique({
+				where: { id: ticket.id },
+				include,
+			});
 		}
 		await deliver(client, ticket, task, channel);
 	} catch {
@@ -460,11 +486,16 @@ async function tick(client, generator = Gemini.generate) {
 }
 async function humanButton(client, id, interaction) {
 	await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-	const getMessage = await getSupportMessages(client, { ticketId: interaction.channelId });
 	const ticket = await client.prisma.ticket.findUnique({
 		where: { id: interaction.channelId },
 		include,
 	});
+	const language = ticket?.aiLanguage || Language.configured(ticket?.category);
+	const locale = language === 'en' ? 'en-GB' : language === 'de' ? 'de' : ticket?.guild?.locale;
+	const getMessage = createTranslator(client.i18n, {
+		...ticket?.guild,
+		locale,
+	}, ticket?.category);
 	if (!ticket?.open || ticket.guildId !== interaction.guildId || id.ticket !== ticket.id || ticket.createdById !== interaction.user.id && await participantSide(client, ticket, interaction.user.id) !== 'STAFF') return interaction.editReply({ content: getMessage('ticket.ai.denied') });
 	await human(client, ticket, null, 'REQUESTED');
 	await interaction.editReply({ content: getMessage('ticket.ai.requested') });

@@ -8,11 +8,12 @@ const G = require('../src/lib/gemini-support');
 const { fixture, load, presentation: P, i18n, D } = require('./helpers/comfort.cjs');
 const { getCatalog, validateOverrides, getSupportMessages } = require('../src/lib/support-texts');
 const crypto = { queue: async callback => callback({ encrypt: text => 'encrypted:' + text, decrypt: text => text.slice(10) }) };
-const A = load('src/lib/ai-support.js', { './threads': { pools: { crypto } } });
+const Language = load('src/lib/ai-language.js', { './threads': { pools: { crypto } } });
+const A = load('src/lib/ai-support.js', { './threads': { pools: { crypto } }, './ai-language': Language });
 const sqlite = { skip: !process.env.TEST_DATABASE_URL };
 const now = new Date('2026-10-03T12:00:00Z');
 const cfg = { freeKey: 'free-key'.repeat(5), paidKey: 'paid-key'.repeat(5), monthlyMicros: 9500000, renewalDay: 1 };
-const good = text => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ action: 'answer', text }) }] } }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 } });
+const good = text => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ action: 'answer', text, language: 'de' }) }] } }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 } });
 const response = (status, body) => ({ ok: status === 200, status, headers: new Headers(), json: async () => body });
 const quota = { error: { details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } };
 async function database(t) {
@@ -118,11 +119,25 @@ test('SQLite: provider/auth/safety failures never spend paid tokens; uncertain p
  const empty = await G.generate(db, 'no-credit', 'FAQ', [], cfg, async () => response(402, {}), now);
  assert.equal(empty.action, 'human'); assert.equal(empty.reason, 'BUDGET'); assert.equal((await db.aiCharge.findUnique({ where: { id: 'no-credit' } })).amountMicros, 0);
 });
+test('SQLite: FAQ extraction uses the same free fallback and durable paid budget as first-line support', sqlite, async t => {
+ const db = await database(t), context = { responseLanguage: 'en', creatorFirstText: 'Hello', messages: [{ id: 'staff-message', side: 'STAFF', text: 'Support is available from 18:00 to 22:00.' }] };
+ const entry = { question: 'When is support available?', answer: 'Daily, from 18:00 to 22:00.', language: 'en', evidence: ['staff-message'] };
+ const valid = { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ entries: [entry] }) }] } }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 100, thoughtsTokenCount: 50 } };
+ const free = await G.analyzeFaq(db, 'faq-free', context, cfg, async (_url, options) => { assert.equal(options.headers['x-goog-api-key'], cfg.freeKey); assert.equal(JSON.parse(options.body).generationConfig.maxOutputTokens, 1536); return response(200, valid); }, now);
+ assert.equal(free.tier, 'free'); assert.deepEqual(free.entries, [entry]); assert.equal(await db.aiCharge.count(), 0);
+ let count = 0; const paid = await G.analyzeFaq(db, 'faq-paid', context, cfg, async (_url, options) => { assert.equal(options.headers['x-goog-api-key'], ++count === 1 ? cfg.freeKey : cfg.paidKey); return count === 1 ? response(429, quota) : response(200, valid); }, now);
+ assert.equal(paid.tier, 'paid'); assert.equal((await G.status(db, cfg, now)).usedUsd, 0.000675); assert.equal((await db.aiCharge.findUnique({ where: { id: 'faq-paid' } })).settled, true);
+ const limited = { ...cfg, monthlyMicros: 675 + G.reservation(G.faqBody(context)) - 1 };
+ assert.equal((await G.analyzeFaq(db, 'faq-no-budget', context, limited, async () => assert.fail('No money remaining for extraction'), now)).reason, 'BUDGET');
+ assert.equal((await G.generate(db, 'support-after-faq', 'FAQ', { responseLanguage: 'de' }, cfg, async () => response(200, good('Support answer')), now)).tier, 'paid'); assert.equal((await G.status(db, cfg, now)).usedUsd, 0.00135);
+ const malformed = await G.analyzeFaq(db, 'faq-invalid', context, cfg, async () => response(200, { ...valid, candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ entries: [{ ...entry, evidence: [] }] }) }] } }] }), now); assert.equal(malformed.action, 'human'); assert.equal(malformed.reason, 'MODEL');
+});
+
 test('SQLite/Discord: DE/EN FAQ, inheritance, custom texts, duplicates, human handoff and reply limit', sqlite, async t => {
  const f = await aiFixture(t), de = await f.create(), en = await f.create({ categoryId: f.en.id });
  const task = await f.queue(de, 'Wie geht das?'); await A.enqueue(f.client, de.ticket.id, de.channel.messages.cache.get(task.id)); assert.equal(await f.db.aiTask.count({ where: { id: task.id } }), 1);
  await f.queue(en, 'How does it work?'); const seen = [];
- const generator = async (_db, _id, knowledge, context) => { seen.push(knowledge); assert.ok(context.latestQuestion.text); return { action: 'answer', text: knowledge === 'English FAQ' ? 'English answer' : 'Deutsche Antwort', tier: 'free' }; };
+ const generator = async (_db, _id, knowledge, context) => { seen.push(knowledge); assert.ok(context.latestQuestion.text); return { action: 'answer', text: knowledge === 'English FAQ' ? 'English answer' : 'Deutsche Antwort', language: knowledge === 'English FAQ' ? 'en' : 'de', tier: 'free' }; };
  await A.tick(f.client, generator); assert.deepEqual(seen, ['Deutsche FAQ', 'English FAQ']);
  assert.equal(de.channel.messages.cache.last().embeds[0].data.title, 'KI-Erstsupport'); assert.equal(en.channel.messages.cache.last().embeds[0].data.title, 'AI assistance'); assert.equal(en.channel.messages.cache.last().components[0].components[0].data.label, 'Human help');
  assert.ok(de.channel.messages.cache.last().components[0].components[0].data.custom_id.length <= 100); assert.deepEqual(JSON.parse(JSON.stringify(de.channel.messages.cache.last().allowedMentions)), { parse: [], repliedUser: false });

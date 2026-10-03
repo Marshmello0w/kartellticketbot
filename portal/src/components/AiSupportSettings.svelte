@@ -19,6 +19,7 @@
 
 <section class="rounded-lg border border-gray-300 p-4 dark:border-slate-600">
 	<h2 class="mb-3 font-semibold">KI-Erstsupport mit Gemini</h2>
+	<a class="mb-3 inline-block text-sm text-orange-600 hover:underline dark:text-orange-400" href={'/settings/' + guildId + '/faq'}>FAQ aus Tickets prüfen und verwalten</a>
 	<label class="flex items-center gap-3">
 		<input type="checkbox" class="form-checkbox" bind:checked={settings.aiSupportEnabled} />
 		<span>Neue Tickets zuerst von der KI beantworten lassen</span>

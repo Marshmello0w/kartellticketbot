@@ -132,6 +132,9 @@ module.exports = class extends Listener {
 		const checkAI = () => aiTick(client).catch(() => client.log.warn('AI support worker check failed'));
 		checkAI();
 		setInterval(checkAI, 5000);
+		const checkFAQ = () => require('../../lib/faq-learning').tick(client).catch(() => client.log.warn('FAQ worker check failed'));
+		checkFAQ();
+		setInterval(checkFAQ, 5000);
 
 		// stats posting
 		if (client.config.stats) {

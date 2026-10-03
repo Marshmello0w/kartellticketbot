@@ -57,6 +57,24 @@ commands:
     create:
       name: Ticket aus Nachricht erstellen
   slash:
+    faq-analyze:
+      description: Chat auswerten und FAQ-Vorschläge für die Webseite erstellen
+      options:
+        ticket:
+          description: Ticketnummer oder Kanal-ID; ohne Angabe dieses Ticket
+      started: Der Chat wird analysiert. FAQ-Vorschläge erscheinen auf der Webseite
+        unter „FAQ“.
+      done: "{messages} Textnachrichten ausgewertet: {count} neue FAQ-Vorschläge.
+        Prüfe und veröffentliche sie auf der Webseite unter „FAQ“."
+      failed: Die Analyse konnte nicht abgeschlossen werden. Den Status findest du auf
+        der Webseite unter „FAQ“. Prüfe dort den Gemini-Zugang und das Kontingent.
+      truncated: Der Verlauf war lang oder nur teilweise erreichbar. Es wurde ein
+        Ausschnitt ausgewertet.
+      denied: Nur zuständige Supporter und Administratoren dürfen Tickets für die FAQ
+        auswerten.
+      ticket_missing: Bitte den Command in einem Ticket ausführen oder eine gültige
+        Ticketnummer angeben.
+
     add:
       added: ➡️ {added} wurde von {by} zum Ticket hinzugefügt.
       not_staff:

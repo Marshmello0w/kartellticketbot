@@ -729,6 +729,7 @@ module.exports = class TicketManager {
 		const data = {
 			category: { connect: { id: categoryId } },
 			aiState: category.guild.aiSupportEnabled && category.aiSupportEnabled ? 'active' : 'human',
+			aiLanguage: require('../ai-language').configured(category),
 			createdBy: {
 				connectOrCreate: {
 					create: { id: interaction.user.id },

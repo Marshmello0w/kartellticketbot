@@ -69,6 +69,7 @@ model ArchivedUser {
 }
 
 model Category {
+    aiResponseLanguage String @default("auto")
     aiSupportEnabled Boolean @default(true)
     aiKnowledge String @default("") @db.Text
     textOverrides   Json     @default("{}")
@@ -115,6 +116,8 @@ model Feedback {
 }
 
 model Guild {
+    faqEntries FaqEntry[]
+    faqJobs FaqJob[]
     aiSupportEnabled Boolean @default(false)
     aiKnowledge String @default("") @db.Text
     driveArchiveEnabled Boolean @default(false)
@@ -251,6 +254,9 @@ model Tag {
 }
 
 model Ticket {
+    aiLanguage String?
+    aiLanguageSeed String? @db.Text
+    aiLanguageSourceId String?
     aiLeaseUntil DateTime?
     aiState String @default("active")
     aiReplies Int @default(0)
@@ -385,4 +391,50 @@ enum TicketPriority {
 enum QuestionType {
     MENU
     TEXT
+}
+
+model FaqEntry {
+    id String @id
+    guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+    guildId String
+    categoryId Int?
+    categoryName String
+    sourceTicketId String
+    sourceTicketNumber Int
+    jobId String
+    question String @db.Text
+    answer String @db.Text
+    language String
+    evidence String @db.Text
+    status String @default("draft")
+    reviewedById String?
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([guildId, status])
+    @@map("faqEntries")
+}
+
+model FaqJob {
+    id String @id
+    guild Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+    guildId String
+    ticketId String
+    ticketNumber Int
+    categoryId Int?
+    categoryName String
+    requestedById String
+    ticketKey String? @unique
+    state String @default("queued")
+    createdAt DateTime @default(now())
+    finishedAt DateTime?
+    leaseUntil DateTime?
+    errorCode String?
+    messageCount Int @default(0)
+    truncated Boolean @default(false)
+    proposals Int @default(0)
+
+    @@index([state, createdAt])
+    @@index([guildId, createdAt])
+    @@map("faqJobs")
 }

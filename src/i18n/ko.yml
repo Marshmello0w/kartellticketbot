@@ -44,6 +44,21 @@ commands:
         description: 메시지가 고정되었습니다.
         title: ✅ 메시지 고정됨
   slash:
+    faq-analyze:
+      description: Analyze a ticket chat and create FAQ suggestions for the portal
+      options:
+        ticket:
+          description: Ticket number or channel ID; defaults to the current ticket
+      started: The chat is being analyzed. FAQ suggestions appear in the portal under FAQ.
+      done: "Analyzed {messages} text messages: {count} new FAQ suggestions. Review
+        and publish them in the portal under FAQ."
+      failed: The analysis could not be completed. Check the FAQ page in the portal
+        for the status, Gemini connection and quota.
+      truncated: The chat was long or only partially accessible. Only an excerpt was analyzed.
+      denied: Only category support staff and administrators can analyze tickets for
+        the FAQ.
+      ticket_missing: Run this command in a ticket or provide a valid ticket number.
+
     add:
       success:
         title: ✅ 추가됨

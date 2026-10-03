@@ -79,6 +79,7 @@ module.exports.patch = fastify => ({
 		delete data.textOverrides;
 
 		const select = {
+			aiResponseLanguage: true,
 			aiSupportEnabled: true,
 			aiKnowledge: true,
 			channelName: true,

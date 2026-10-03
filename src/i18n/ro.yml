@@ -46,6 +46,21 @@ commands:
         description: Mesajul a fost fixat.
         title: ✅ Mesaj fixat
   slash:
+    faq-analyze:
+      description: Analyze a ticket chat and create FAQ suggestions for the portal
+      options:
+        ticket:
+          description: Ticket number or channel ID; defaults to the current ticket
+      started: The chat is being analyzed. FAQ suggestions appear in the portal under FAQ.
+      done: "Analyzed {messages} text messages: {count} new FAQ suggestions. Review
+        and publish them in the portal under FAQ."
+      failed: The analysis could not be completed. Check the FAQ page in the portal
+        for the status, Gemini connection and quota.
+      truncated: The chat was long or only partially accessible. Only an excerpt was analyzed.
+      denied: Only category support staff and administrators can analyze tickets for
+        the FAQ.
+      ticket_missing: Run this command in a ticket or provide a valid ticket number.
+
     add:
       added: ➡️ {added} a fost adăugat de {by}.
       description: Adăugă un membru la un tichet

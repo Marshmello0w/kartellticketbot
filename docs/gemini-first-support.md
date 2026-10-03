@@ -62,15 +62,49 @@ Nach dem normalen Bot-Update und Neustart:
 2. Eigene FAQ, Regeln, Zuständigkeiten und hilfreiche Links eintragen; speichern.
 3. In jeder Support-Kategorie die KI erlauben oder ausschalten. Eigene Kategorie-FAQ
    ersetzen die Server-FAQ; ein leeres Feld übernimmt die Server-FAQ.
+   Unter **Antwortsprache der KI** Deutsch, Englisch oder automatisch auswählen.
+   Automatisch verwendet die erste Textnachricht des Ticket-Erstellers beziehungsweise
+   dessen zuvor eingegebenes Ticketthema. Die Sprache bleibt für dieses Ticket
+   gespeichert, auch nach weiteren Nachrichten, Kategorieänderungen oder Neustarts.
 4. Unter **Texte** Button „Supporter anfordern“ und KI-Hinweise anpassen. Auch hier gilt
    Kategorie → Server → Standard. Bestehende Nachrichten werden nicht umgeschrieben.
 
 Ohne Supportwissen oder bei einer nicht daraus beantwortbaren Frage übernimmt ein
-Mensch. Die KI antwortet in der Sprache der Nutzerfrage, bezeichnet sich als KI
+Mensch. Die KI antwortet in der gespeicherten Ticketsprache, bezeichnet sich als KI
 und kann über den Button beendet werden. Eine Antwort/öffentliche Tag-Antwort oder
 Ticketaktion des Teams sowie eine Schließanfrage beendet die KI-Hilfe dauerhaft.
 Dateien werden nicht von der KI analysiert; reine Datei-Anfragen gehen zum Team.
 Schließen, Priorität, Rollen oder sonstige Ticketaktionen kann die KI nicht ausführen.
+
+## FAQ aus einem Ticket lernen
+
+Zuständige Kategorie-Supporter und Administratoren können **`/faq-analyze`** im
+Ticket ausführen. Mit **`/faq-analyze ticket:NUMMER`** ist auch die Analyse eines
+anderen Tickets dieses Servers möglich, einschließlich geschlossener Tickets mit
+vorhandenen Archivdaten. Die Rückmeldung in Discord sieht nur die ausführende Person.
+
+Die KI erstellt höchstens fünf Vorschläge aus bestätigten menschlichen
+Support-Antworten. Botnachrichten, ungelöste Fragen und individuelle Accountfälle
+sollen nicht übernommen werden. Personenbezogene Angaben und Zugangsdaten werden
+vor der Anfrage soweit erkennbar entfernt. Links auf die zugrunde liegenden
+Support-Antworten helfen bei der Prüfung; bei gelöschten Kanälen das Transkript nutzen.
+
+Auf der Webseite unter **FAQ aus Tickets** Vorschläge prüfen, bearbeiten und mit
+**In FAQ übernehmen** freigeben oder verwerfen. Dort sind auch freigegebene FAQ,
+Suchfunktion, letzte Analysen und das manuell hinterlegte Supportwissen sichtbar.
+Ein Eintrag gilt für seine Kategorie oder nach Umstellung für den gesamten Server.
+Nur freigegebene Einträge ergänzen unmittelbar das bisherige Supportwissen; Entwürfe
+und verworfene Einträge werden von der antwortenden KI nicht verwendet.
+Wiederholte Analysen überschreiben keine bereits vorhandenen Einträge.
+
+Die Analyse teilt sich kostenlose und bezahlte Kontingente sowie das gespeicherte
+Kostenlimit mit dem Erstsupport. Ist kein Kontingent verfügbar, bleibt sie mit
+Fehlermeldung stehen. Lange Verläufe werden begrenzt ausgewertet: höchstens die
+neuesten 500 Nachrichten, bis zu 4.000 Zeichen pro Nachricht und rund 56 KB Kontext.
+Die Webseite und die Command-Rückmeldung kennzeichnen einen unvollständigen Ausschnitt.
+Nach einem Neustart werden noch nicht begonnene Analysen fortgesetzt. Eine unklar
+abgebrochene Google-Anfrage wird nicht automatisch erneut gestartet; das Team kann
+den Command bei Bedarf erneut ausführen.
 
 ## Kosten und Zustellung
 
