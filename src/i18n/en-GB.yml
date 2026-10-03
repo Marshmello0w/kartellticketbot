@@ -472,6 +472,7 @@ modals:
     placeholder: What is this ticket about?
 ticket:
   ai:
+    clarification: "Hello! What do you need help with? Please briefly describe your issue."
     title: "AI first-line support"
     disclaimer: "AI assistance based on support knowledge. You can ask for a human at any time."
     handoff_title: "A supporter will take over"

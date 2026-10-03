@@ -1,5 +1,5 @@
 const {
-	status, checkConnection,
+	status, checkConnection, checkFreeGeneration,
 } = require('../../../../../lib/gemini-support');
 const { describeReason } = require('../../../../../lib/ai-diagnostics');
 module.exports.get = fastify => ({
@@ -47,9 +47,27 @@ module.exports.get = fastify => ({
 	onRequest: [fastify.authenticate, fastify.isAdmin],
 });
 module.exports.post = fastify => ({
-	handler: async () => ({
-		...await checkConnection(),
-		checkedAt: new Date(),
-	}),
+	preValidation: async req => {
+		// Preserve the existing bodyless metadata check for older portal builds.
+		if (req.body === undefined) req.body = {};
+	},
+	handler: async req => req.body?.mode === 'generation'
+		? checkFreeGeneration(req.routeOptions.config.client.prisma)
+		: {
+			...await checkConnection(),
+			checkedAt: new Date(),
+		},
+	schema: {
+		body: {
+			type: 'object',
+			additionalProperties: false,
+			properties: {
+				mode: {
+					type: 'string',
+					enum: ['metadata', 'generation'],
+				},
+			},
+		},
+	},
 	onRequest: [fastify.authenticate, fastify.isAdmin],
 });

@@ -1,6 +1,6 @@
 const { createHash } = require('node:crypto');
 const {
-	ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags,
+	ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const { createTranslator } = require('./support-texts');
 const {
@@ -8,6 +8,8 @@ const {
 } = require('./ticket-presentation');
 const Gemini = require('./gemini-support');
 const Language = require('./ai-language');
+const Input = require('./ai-input');
+const startTyping = require('./ai-typing');
 
 const include = {
 	guild: true,
@@ -211,7 +213,11 @@ async function deliver(client, ticket, task, channel) {
 		found, staff,
 	} = await findDelivery(client, ticket, task, channel, marker);
 	if (staff && !handoff) return await stop(client, ticket.id);
+	const response = handoff ? getMessage('ticket.ai.handoff') : await require('./threads').pools.crypto.queue(worker => worker.decrypt(task.response));
+	const note = '\n\n-# ' + getMessage(handoff ? 'ticket.ai.handoff_marker' : 'ticket.ai.disclaimer');
 	const payload = {
+		content: response + (response.length + note.length <= 2000 ? note : ''),
+		flags: MessageFlags.SuppressEmbeds,
 		allowedMentions: {
 			parse: [],
 			repliedUser: false,
@@ -222,7 +228,6 @@ async function deliver(client, ticket, task, channel) {
 			messageReference: ref,
 			failIfNotExists: false,
 		},
-		embeds: [new EmbedBuilder().setColor(ticket.guild.primaryColour).setTitle(getMessage(handoff ? 'ticket.ai.handoff_title' : 'ticket.ai.title')).setDescription(handoff ? getMessage('ticket.ai.handoff') : await require('./threads').pools.crypto.queue(worker => worker.decrypt(task.response))).setFooter({ text: getMessage(handoff ? 'ticket.ai.handoff_marker' : 'ticket.ai.disclaimer') })],
 		components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(marker).setStyle(ButtonStyle.Secondary).setLabel(getMessage('buttons.ai_human.text')).setDisabled(handoff))],
 	};
 	// Recheck after network calls; staff actions always take precedence.
@@ -296,6 +301,7 @@ async function processTask(client, task, generator) {
 		data: { aiLeaseUntil: lease },
 	});
 	if (!claimed.count) return;
+	let stopTyping = () => {};
 	try {
 		const channel = await client.channels.fetch(ticket.id);
 		if (!channel || channel.guildId !== ticket.guildId) return;
@@ -344,11 +350,12 @@ async function processTask(client, task, generator) {
 				});
 				return;
 			}
-			const supportKnowledge = [knowledge(ticket), await require('./faq-learning').getKnowledge(client.prisma, ticket, {
+			const greeting = ['de', 'en'].includes(context.responseLanguage) && !context.latestQuestion.attachments && Input.isGreeting(context.latestQuestion.text);
+			const supportKnowledge = greeting ? '' : [knowledge(ticket), await require('./faq-learning').getKnowledge(client.prisma, ticket, {
 				language: context.responseLanguage,
 				question: context.latestQuestion.text,
 			})].filter(Boolean).join('\n\n');
-			if (!supportKnowledge) return await human(client, ticket, task, 'KNOWLEDGE');
+			if (!greeting && !supportKnowledge) return await human(client, ticket, task, 'KNOWLEDGE');
 			const claim = await client.prisma.aiTask.updateMany({
 				where: {
 					id: task.id,
@@ -365,7 +372,18 @@ async function processTask(client, task, generator) {
 				include,
 			});
 			if (!enabled(ticket)) return await stop(client, ticket.id);
-			const result = await generator(client.prisma, task.id, supportKnowledge, context);
+			stopTyping = startTyping(channel, async () => enabled(await client.prisma.ticket.findUnique({
+				where: { id: ticket.id },
+				include,
+			})));
+			const result = greeting ? {
+				action: 'answer',
+				language: context.responseLanguage,
+				text: createTranslator(client.i18n, {
+					...ticket.guild,
+					locale: context.responseLanguage === 'en' ? 'en-GB' : 'de',
+				}, ticket.category)('ticket.ai.clarification'),
+			} : await generator(client.prisma, task.id, supportKnowledge, context);
 			await Language.pin(client, ticket.id, result.language);
 			if (result.action !== 'answer') return await human(client, ticket, task, result.reason || 'MODEL');
 			const protectedResponse = await require('./threads').pools.crypto.queue(worker => worker.encrypt(result.text));
@@ -404,6 +422,7 @@ async function processTask(client, task, generator) {
 			client.log.warn('AI support delivery pending for ticket %s', ticket.id);
 		}
 	} finally {
+		stopTyping();
 		await client.prisma.ticket.updateMany({
 			where: {
 				id: ticket.id,

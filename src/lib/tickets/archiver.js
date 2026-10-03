@@ -17,6 +17,7 @@ module.exports = class TicketArchiver {
 		/** @type {import("client")} */
 		this.client = client;
 		this.pending = new Map();
+		this.queues = new Map();
 	}
 
 	/** Add or update a message
@@ -26,13 +27,18 @@ module.exports = class TicketArchiver {
 	 * @returns {import("@prisma/client").ArchivedMessage|boolean}
 	 */
 	saveMessage(ticketId, message, external = false) {
-		const promise = this.saveMessageNow(ticketId, message, external);
+		// Gateway events, Drive reconciliation and final capture can all overlap.
+		// Serialize per ticket so shared roles/users and edits keep their order.
+		const previous = this.queues.get(ticketId) || Promise.resolve();
+		const promise = previous.catch(() => {}).then(() => this.saveMessageNow(ticketId, message, external));
+		this.queues.set(ticketId, promise);
 		if (!this.pending.has(ticketId)) this.pending.set(ticketId, new Set());
 		this.pending.get(ticketId).add(promise);
 		promise.finally(() => {
 			const entries = this.pending.get(ticketId);
 			entries?.delete(promise);
 			if (!entries?.size) this.pending.delete(ticketId);
+			if (this.queues.get(ticketId) === promise) this.queues.delete(ticketId);
 		}).catch(() => {});
 		return promise;
 	}
@@ -96,17 +102,18 @@ module.exports = class TicketArchiver {
 			}
 		}
 
-		const channels = new Set(message.mentions.channels.values());
-		const members = new Set(message.mentions.members.values());
-		const roles = new Set(message.mentions.roles.values());
+		// Different Discord object instances can represent the same database key.
+		const channels = new Map([...message.mentions.channels.values()].map(channel => [channel.id, channel]));
+		const members = new Map([...message.mentions.members.values()].map(member => [member.user.id, member]));
+		const roles = new Map([...message.mentions.roles.values()].map(role => [role.id, role]));
 
 		try {
 			const queries = [];
 
 			if (message.member) {
-				members.add(message.member);
+				members.set(message.member.user.id, message.member);
 			} else if (message.author) {
-				members.add({
+				members.set(message.author.id, {
 					user: message.author,
 					displayName: message.author.globalName || message.author.username,
 					guild: message.guild,
@@ -114,17 +121,18 @@ module.exports = class TicketArchiver {
 				});
 			}
 
-			for (const member of members) {
-				roles.add(hoistedRole(member));
+			for (const member of members.values()) {
+				const role = hoistedRole(member);
+				roles.set(role.id, role);
 			}
 
-			for (const role of roles) {
+			for (const role of roles.values()) {
 				const data = {
 					colour: role.hexColor.slice(1),
 					name: role.name,
 				};
 				queries.push(
-					this.client.prisma.archivedRole.upsert({
+					() => this.client.prisma.archivedRole.upsert({
 						create: {
 							...data,
 							roleId: role.id,
@@ -142,7 +150,7 @@ module.exports = class TicketArchiver {
 				);
 			}
 
-			for (const member of members) {
+			for (const member of members.values()) {
 				const data = {
 					avatar: member.avatar || member.user.avatar, // TODO: save avatar in user/avatars/
 					bot: member.user.bot,
@@ -152,7 +160,7 @@ module.exports = class TicketArchiver {
 					username: await crypto.queue(w => w.encrypt(member.user.username)),
 				};
 				queries.push(
-					this.client.prisma.archivedUser.upsert({
+					() => this.client.prisma.archivedUser.upsert({
 						create: {
 							...data,
 							ticketId,
@@ -170,14 +178,14 @@ module.exports = class TicketArchiver {
 				);
 			}
 
-			for (const channel of channels) {
+			for (const channel of channels.values()) {
 				const data = {
 					channelId: channel.id,
 					name: channel.name,
 					ticketId,
 				};
 				queries.push(
-					this.client.prisma.archivedChannel.upsert({
+					() => this.client.prisma.archivedChannel.upsert({
 						create: data,
 						select: { ticketId: true },
 						update: data,
@@ -220,7 +228,7 @@ module.exports = class TicketArchiver {
 			};
 
 			queries.push(
-				this.client.prisma.archivedMessage.upsert({
+				() => this.client.prisma.archivedMessage.upsert({
 					create: {
 						...data,
 						authorId: message.author?.id || 'default',
@@ -233,7 +241,18 @@ module.exports = class TicketArchiver {
 				}),
 			);
 
-			const result = await this.client.prisma.$transaction(queries);
+			let result;
+			for (let attempt = 0; attempt < 3; attempt++) {
+				try {
+					// Fresh Prisma promises for every attempt. Another bot process
+					// may have inserted a shared row after this transaction read it.
+					result = await this.client.prisma.$transaction(queries.map(query => query()));
+					break;
+				} catch (error) {
+					if (!['P2002', 'P2034'].includes(error.code) || attempt === 2) throw error;
+					await new Promise(resolve => setTimeout(resolve, 25 * (attempt + 1)));
+				}
+			}
 			if (!external) {
 				const ticket = await this.client.prisma.ticket.findUnique({
 					where: { id: ticketId },

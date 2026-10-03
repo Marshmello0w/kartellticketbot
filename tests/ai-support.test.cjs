@@ -5,6 +5,7 @@ const path = require('node:path');
 const { PrismaClient } = require('@prisma/client');
 const Fastify = require('fastify');
 const G = require('../src/lib/gemini-support');
+const Input = require('../src/lib/ai-input');
 const { fixture, load, presentation: P, i18n, D } = require('./helpers/comfort.cjs');
 const { getCatalog, validateOverrides, getSupportMessages } = require('../src/lib/support-texts');
 const crypto = { queue: async callback => callback({ encrypt: text => 'encrypted:' + text, decrypt: text => text.slice(10) }) };
@@ -57,6 +58,13 @@ test('tariff, bounded JSON requests, quotas and renewal dates including leap yea
  assert.equal(body.generationConfig.responseMimeType, 'application/json');
  assert.equal(body.tools, undefined); assert.ok(!body.systemInstruction.parts[0].text.includes('Ignore rules'));
  assert.throws(() => G.bodyFor('x'.repeat(100000), []), /INPUT_LIMIT/); assert.ok(G.reservation(body) > 675);
+});
+
+test('only complete short greetings qualify for the local clarification; real questions never disappear behind a greeting', () => {
+ for (const text of ['uwu', 'UWU!!', 'Hallo', 'hello.', ' hi ', 'Guten   Abend!', 'Good morning!']) assert.equal(Input.isGreeting(text), true, text);
+ for (const text of ['Hallo, warum wurde ich gebannt?', 'hi grenade launcher', 'uwu könnt ihr Humvees deaktivieren?', '', 'h', 'hello '.repeat(15)]) assert.equal(Input.isGreeting(text), false, text);
+ assert.equal(Input.language('uwu', 'de'), 'de'); assert.equal(Input.language('uwu', 'en'), 'en');
+ assert.equal(Input.language('hello!', 'de'), 'en'); assert.equal(Input.language('Hallo!', 'en'), 'de');
 });
 test('long knowledge changes fit Discord logs without copying the knowledge', async () => {
  let payload;
@@ -227,11 +235,12 @@ test('SQLite/Discord: DE/EN FAQ, inheritance, custom texts, duplicates, human ha
  await f.queue(en, 'How does it work?'); const seen = [];
  const generator = async (_db, _id, knowledge, context) => { seen.push(knowledge); assert.ok(context.latestQuestion.text); return { action: 'answer', text: knowledge === 'English FAQ' ? 'English answer' : 'Deutsche Antwort', language: knowledge === 'English FAQ' ? 'en' : 'de', tier: 'free' }; };
  await A.tick(f.client, generator); assert.deepEqual(seen, ['Deutsche FAQ', 'English FAQ']);
- assert.equal(de.channel.messages.cache.last().embeds[0].data.title, 'KI-Erstsupport'); assert.equal(en.channel.messages.cache.last().embeds[0].data.title, 'AI assistance'); assert.equal(en.channel.messages.cache.last().components[0].components[0].data.label, 'Human help');
+ assert.ok(de.channel.messages.cache.last().content.startsWith('Deutsche Antwort')); assert.ok(en.channel.messages.cache.last().content.startsWith('English answer')); assert.equal(en.channel.messages.cache.last().components[0].components[0].data.label, 'Human help');
+ assert.equal(de.channel.messages.cache.last().embeds.length, 0); assert.equal(en.channel.messages.cache.last().embeds.length, 0); assert.equal(en.channel.messages.cache.last().flags, D.MessageFlags.SuppressEmbeds);
  assert.ok(de.channel.messages.cache.last().components[0].components[0].data.custom_id.length <= 100); assert.deepEqual(JSON.parse(JSON.stringify(de.channel.messages.cache.last().allowedMentions)), { parse: [], repliedUser: false });
  await f.db.category.update({ where: { id: f.de.id }, data: { aiKnowledge: '' } }); await f.queue(de, 'Noch eine Frage'); await A.tick(f.client, generator); assert.equal(seen.at(-1), 'Server FAQ');
  await f.queue(de, 'Dritte Frage'); await A.tick(f.client, generator); await f.queue(de, 'Vierte Frage'); await A.tick(f.client, generator); assert.equal((await f.read(de.ticket.id)).aiState, 'human'); assert.equal(seen.length, 4);
- await f.db.aiTask.updateMany({ where: { ticketId: de.ticket.id, state: 'handoff' }, data: { createdAt: new Date(Date.now() - 3000) } }); await A.tick(f.client, generator); assert.equal(de.channel.messages.cache.last().embeds[0].data.title, 'Ein Supporter übernimmt');
+ await f.db.aiTask.updateMany({ where: { ticketId: de.ticket.id, state: 'handoff' }, data: { createdAt: new Date(Date.now() - 3000) } }); await A.tick(f.client, generator); assert.ok(de.channel.messages.cache.last().content.includes('Supportteam')); assert.equal(de.channel.messages.cache.last().embeds.length, 0);
 });
 test('SQLite/Discord: staff, claims, closure, attachment-only and ignored bot/webhook/system messages', sqlite, async t => {
  const f = await aiFixture(t), item = await f.create();
@@ -239,6 +248,50 @@ test('SQLite/Discord: staff, claims, closure, attachment-only and ignored bot/we
  const task = await f.queue(item, 'Hi'); await P.recordParticipant(f.client, item.ticket.id, f.ids.staff, new Date(), '999999999999999999', false); await A.tick(f.client, async () => assert.fail('Staff took over')); assert.equal((await f.db.aiTask.findUnique({ where: { id: task.id } })).state, 'cancelled');
  for (const changes of [{ claimedById: f.ids.staff }, { open: false }, { closeRequestedAt: new Date() }, { aiState: 'human' }]) { const other = await f.create(); await f.queue(other, 'Question'); await f.db.ticket.update({ where: { id: other.ticket.id }, data: changes }); await A.tick(f.client, async () => assert.fail('Inactive ticket')); }
  const item2 = await f.create(); await f.queue(item2, '', f.ids.creator, { attachment: true }); await A.tick(f.client, async () => assert.fail('Attachment-only')); assert.equal((await f.read(item2.ticket.id)).aiState, 'human');
+});
+
+test('SQLite/Discord: greetings and uwu ask for the issue locally in DE/EN, use inherited texts and keep FAQ support active', sqlite, async t => {
+ const f = await aiFixture(t), de = await f.create(), en = await f.create({ categoryId: f.en.id });
+ await f.db.guild.update({ where: { id: f.guildId }, data: { aiKnowledge: '', textOverrides: { 'ticket.ai.clarification': 'Server: Wobei brauchst du Hilfe?' } } });
+ await f.db.category.update({ where: { id: f.de.id }, data: { aiKnowledge: '' } });
+ await f.db.category.update({ where: { id: f.en.id }, data: { aiKnowledge: '', aiResponseLanguage: 'en', textOverrides: { 'ticket.ai.clarification': 'Category: What can I help you with?' } } });
+ await f.queue(de, 'uwu'); await f.queue(en, 'Hallo');
+ await A.tick(f.client, async () => assert.fail('No Gemini request for greetings, even without FAQ/key'));
+ assert.ok(de.channel.messages.cache.last().content.startsWith('Server: Wobei brauchst du Hilfe?'));
+ assert.ok(en.channel.messages.cache.last().content.startsWith('Category: What can I help you with?'));
+ assert.equal((await f.read(de.ticket.id)).aiState, 'active'); assert.equal((await f.read(en.ticket.id)).aiLanguage, 'en');
+ assert.equal(await f.db.aiCharge.count(), 0);
+ await f.db.guild.update({ where: { id: f.guildId }, data: { aiKnowledge: 'Approved vehicle rules' } });
+ await f.queue(de, 'Hallo, sind Humvees erlaubt?'); let calls = 0;
+ await A.tick(f.client, async (_db, _id, knowledge, context) => {
+  calls++; assert.equal(knowledge, 'Approved vehicle rules'); assert.equal(context.latestQuestion.text, 'Hallo, sind Humvees erlaubt?');
+  return { action: 'answer', text: 'Ja, Fahrzeuge sind erlaubt.', language: 'de', tier: 'free' };
+ });
+ assert.equal(calls, 1); assert.ok(de.channel.messages.cache.last().content.startsWith('Ja, Fahrzeuge sind erlaubt.'));
+ assert.ok(getCatalog(i18n, 'de').some(field => field.key === 'ticket.ai.clarification'));
+ const other = await f.create(); await f.queue(other, 'Hallo', f.ids.creator, { attachment: true });
+ await A.tick(f.client, async () => ({ action: 'human', reason: 'MODEL_HANDOFF' }));
+ assert.equal((await f.read(other.ticket.id)).aiState, 'human');
+});
+
+test('SQLite/Discord: thinking sends typing while generation is pending; plain replies retain Markdown, suppress previews and fit the message limit', sqlite, async t => {
+ const f = await aiFixture(t), item = await f.create();
+ let typed, typingCalls = 0;
+ const typingStarted = new Promise(resolve => { typed = resolve; });
+ item.channel.sendTyping = async () => { typingCalls++; typed(); };
+ await f.queue(item, 'Könnt ihr Granatwerfer deaktivieren?');
+ await A.tick(f.client, async () => {
+  await typingStarted; assert.equal(typingCalls, 1); assert.equal(item.channel.sent, 0);
+  return { action: 'answer', text: '**Regeln:** Siehe https://example.org/faq\nFrag gerne nach.', language: 'de' };
+ });
+ const sent = item.channel.messages.cache.last();
+ assert.ok(sent.content.startsWith('**Regeln:** Siehe https://example.org/faq\nFrag gerne nach.')); assert.ok(sent.content.includes('KI-Hilfe'));
+ assert.equal(sent.embeds.length, 0); assert.equal(sent.flags, D.MessageFlags.SuppressEmbeds); assert.ok(sent.components.length);
+ const other = await f.create();
+ await f.db.guild.update({ where: { id: f.guildId }, data: { textOverrides: { 'ticket.ai.disclaimer': 'x'.repeat(2000) } } });
+ await f.queue(other, 'Eine konkrete Frage');
+ await A.tick(f.client, async () => ({ action: 'answer', text: 'x'.repeat(1600), language: 'de' }));
+ assert.equal(other.channel.messages.cache.last().content.length, 1600);
 });
 test('SQLite/Discord: concurrent messages, staff during generation and restart without duplicate generation or delivery', sqlite, async t => {
  const f = await aiFixture(t), item = await f.create(), first = await f.queue(item, 'First'), latest = await f.queue(item, 'Latest');
@@ -274,9 +327,12 @@ test('SQLite/Discord/admin: provider reason survives restart, stays guild-scoped
  const foreignId = 'human-foreign-' + item.ticket.id;
  await f.db.aiTask.create({ data: { id: foreignId, ticketId: 'foreign', guildId: 'other-guild', userId: f.ids.creator, state: 'handoff', errorCode: 'PROVIDER_API_KEY_INVALID' } });
  t.after(async () => { const db = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } }); try { await db.aiTask.deleteMany({ where: { id: foreignId } }); } finally { await db.$disconnect(); } });
- let probes = 0;
+ let probes = 0, generations = 0;
  const routes = load('src/routes/api/admin/guilds/[guild]/ai.js', {
-  '../../../../../lib/gemini-support': { status: () => G.status(f.db), checkConnection: async () => { probes++; return { free: { ok: true }, paid: null }; } },
+  '../../../../../lib/gemini-support': {
+   status: () => G.status(f.db), checkConnection: async () => { probes++; return { free: { ok: true }, paid: null }; },
+   checkFreeGeneration: async db => { assert.equal(db, f.db); generations++; return { free: { ok: true }, paid: null, mode: 'generation', checkedAt: new Date() }; },
+  },
  });
  const app = Fastify(); t.after(() => app.close());
  app.decorate('authenticate', async (req, reply) => { if (!req.headers['x-role']) return reply.code(401).send(); }); app.decorate('isAdmin', async (req, reply) => { if (req.headers['x-role'] !== 'admin') return reply.code(403).send(); });
@@ -290,4 +346,13 @@ test('SQLite/Discord/admin: provider reason survives restart, stays guild-scoped
  assert.ok(!result.body.includes(cfg.freeKey)); assert.ok(!result.body.includes('PROVIDER_API_KEY_INVALID')); assert.ok(!/response|freeKey|paidKey/.test(result.body));
  const probe = await app.inject({ method: 'POST', url, headers: { 'x-role': 'admin' } });
  assert.equal(probe.statusCode, 200); assert.equal(probe.json().free.ok, true); assert.ok(probe.json().checkedAt); assert.equal(probes, 1);
+ for (const role of [undefined, 'member']) {
+  const denied = await app.inject({ method: 'POST', url, headers: role ? { 'x-role': role } : {}, payload: { mode: 'generation' } });
+  assert.equal(denied.statusCode, role ? 403 : 401);
+ }
+ assert.equal(generations, 0);
+ const generated = await app.inject({ method: 'POST', url, headers: { 'x-role': 'admin' }, payload: { mode: 'generation', text: 'PRIVATE_TICKET_MUST_NOT_GO_TO_TEST' } });
+ assert.equal(generated.statusCode, 200); assert.equal(generated.json().mode, 'generation'); assert.equal(generations, 1); assert.equal(probes, 1);
+ assert.ok(!generated.body.includes('PRIVATE_TICKET'));
+ assert.equal((await app.inject({ method: 'POST', url, headers: { 'x-role': 'admin' }, payload: { mode: 'unknown' } })).statusCode, 400); assert.equal(generations, 1);
 });

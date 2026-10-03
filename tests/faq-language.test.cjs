@@ -47,7 +47,7 @@ test('automatic language survives later users, edits, deleted first message, res
  await f.db.aiTask.updateMany({ where: { ticketId: item.ticket.id }, data: { createdAt: new Date(Date.now() - 4000) } });
  const seen = [];
  await A.tick(f.client, async (_db, _id, _knowledge, context) => { seen.push(context); assert.equal(context.responseLanguage, 'en'); assert.equal(context.creatorFirstText, undefined); return { action: 'answer', text: 'Support is available from 18:00 to 22:00.', language: 'en' }; });
- assert.equal((await f.read(item.ticket.id)).aiLanguage, 'en'); assert.equal(item.channel.messages.cache.last().embeds[0].data.title, 'AI first-line support');
+ assert.equal((await f.read(item.ticket.id)).aiLanguage, 'en'); assert.ok(item.channel.messages.cache.last().content.includes('AI assistance')); assert.equal(item.channel.messages.cache.last().embeds.length, 0);
  assert.ok((await f.read(item.ticket.id)).aiLanguageSeed.startsWith('sealed:')); assert.ok(!(await f.read(item.ticket.id)).aiLanguageSeed.includes('Bitte'));
  first.content = 'Edited to German'; await item.channel.messages.delete(first.id);
  await f.db.category.update({ where: { id: f.de.id }, data: { aiResponseLanguage: 'de' } });

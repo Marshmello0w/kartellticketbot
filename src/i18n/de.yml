@@ -452,6 +452,7 @@ modals:
     placeholder: Worum geht es in diesem Ticket?
 ticket:
   ai:
+    clarification: "Hallo! Wobei brauchst du Hilfe? Beschreibe bitte kurz dein Anliegen."
     title: "KI-Erstsupport"
     disclaimer: "KI-Hilfe auf Basis unseres Supportwissens. Du kannst jederzeit einen Menschen anfordern."
     handoff_title: "Ein Supporter übernimmt"

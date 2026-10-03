@@ -40,7 +40,7 @@ async function fixture(t) {
   result.add = (payload, author = { id: botId, bot: true }, at = new Date(), flags = {}) => {
    const id = String(BigInt(guildId) * 10000n + ++messageSerial);
    const message = { id, createdAt: at, author, system: false, webhookId: null, embeds: [], components: [], ...flags };
-   function apply(payload) { if (payload.embeds) message.embeds = payload.embeds.map(embed => new D.EmbedBuilder(embed.toJSON ? embed.toJSON() : embed)); if (payload.components) message.components = payload.components.map(row => D.ActionRowBuilder.from(row)); message.allowedMentions = payload.allowedMentions; }
+   function apply(payload) { if (payload.content !== undefined) message.content = payload.content; if (payload.flags !== undefined) message.flags = payload.flags; if (payload.embeds) message.embeds = payload.embeds.map(embed => new D.EmbedBuilder(embed.toJSON ? embed.toJSON() : embed)); if (payload.components) message.components = payload.components.map(row => D.ActionRowBuilder.from(row)); message.allowedMentions = payload.allowedMentions; }
    apply(payload); message.edit = async payload => { result.edits++; apply(payload); return message; }; message.delete = () => result.messages.delete(id); cache.set(id,message); return message;
   };
   result.send = async payload => { result.sent++; return result.add(payload); };

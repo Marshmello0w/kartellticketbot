@@ -17,12 +17,16 @@
 		} catch { failed = true; }
 		finally { loading = false; }
 	}
-	async function checkConnection() {
+	async function checkConnection(mode = 'metadata') {
 		checking = true;
 		checkFailed = false;
 		connection = null;
 		try {
-			const response = await fetch(`/api/admin/guilds/${guildId}/ai`, { method: 'POST', credentials: 'include' });
+			const response = await fetch(`/api/admin/guilds/${guildId}/ai`, {
+				method: 'POST', credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ mode }),
+			});
 			if (!response.ok) throw new Error();
 			connection = await response.json();
 		} catch { checkFailed = true; }
@@ -61,18 +65,24 @@
 		{/if}
 	{/if}
 	<button type="button" class="mt-3 text-sm text-orange-600 hover:underline dark:text-orange-400" onclick={refresh} disabled={loading}>{loading ? 'Status wird geladen…' : 'Status aktualisieren'}</button>
-	<button type="button" class="ml-4 mt-3 text-sm text-orange-600 hover:underline dark:text-orange-400" onclick={checkConnection} disabled={checking}>{checking ? 'Verbindung wird geprüft…' : 'Verbindung prüfen'}</button>
+	<button type="button" class="ml-4 mt-3 text-sm text-orange-600 hover:underline dark:text-orange-400" onclick={() => checkConnection()} disabled={checking}>{checking ? 'Verbindung wird geprüft…' : 'Verbindung prüfen'}</button>
+	<button type="button" class="ml-4 mt-3 text-sm text-orange-600 hover:underline dark:text-orange-400" onclick={() => checkConnection('generation')} disabled={checking}>Kostenlose Testantwort prüfen</button>
 	{#if checkFailed}<p class="mt-2 text-sm text-orange-600 dark:text-orange-400">Die Verbindungsprüfung konnte nicht gestartet werden. Bitte erneut versuchen.</p>{/if}
 	{#if connection}
 		<div class="mt-3 rounded border border-gray-200 p-3 text-sm dark:border-slate-700" aria-live="polite">
-			<p>Kostenloser Zugang: <strong>{connection.free.ok ? 'Google erreichbar, Modell verfügbar' : 'Prüfung fehlgeschlagen'}</strong></p>
+			<p>Kostenloser Zugang: <strong>{connection.free.ok ? connection.mode === 'generation' ? 'Testantwort erfolgreich erzeugt' : 'Google erreichbar, Modell verfügbar' : 'Prüfung fehlgeschlagen'}</strong></p>
 			{#if !connection.free.ok}<p class="mt-1 text-orange-600 dark:text-orange-400">{connection.free.message} ({connection.free.code})</p>{/if}
 			{#if connection.paid}
 				<p class="mt-2">Bezahlter Zugang: <strong>{connection.paid.ok ? 'Google erreichbar, Modell verfügbar' : 'Prüfung fehlgeschlagen'}</strong></p>
 				{#if !connection.paid.ok}<p class="mt-1 text-orange-600 dark:text-orange-400">{connection.paid.message} ({connection.paid.code})</p>{/if}
 			{/if}
-			<p class="mt-2 text-gray-500 dark:text-slate-400">Nur Schlüssel- und Modellzugriff geprüft: keine KI-Generierung, keine Tickettexte und kein Tokenverbrauch. Verfügbares Kontingent und Antwortverhalten lassen sich damit nicht prüfen.</p>
+			{#if connection.mode === 'generation'}
+				<p class="mt-2 text-gray-500 dark:text-slate-400">Kurze vorgegebene Testfrage, wenige Tokens, ausschließlich über den kostenlosen Schlüssel. Keine Ticketinhalte und kein Wechsel zum bezahlten Zugang. Das Ergebnis wird bis zu einer Minute wiederverwendet.</p>
+			{:else}
+				<p class="mt-2 text-gray-500 dark:text-slate-400">Nur Schlüssel- und Modellzugriff geprüft: keine KI-Generierung, keine Tickettexte und kein Tokenverbrauch. Bei Fehlern erst beim Antworten „Kostenlose Testantwort prüfen“ verwenden.</p>
+			{/if}
 		</div>
 	{/if}
+	<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">„Kostenlose Testantwort prüfen“ testet das Erzeugen einer Antwort mit einer kurzen vorgegebenen Frage. Dafür werden wenige Tokens des kostenlosen Kontingents verwendet.</p>
 	<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Einrichtung: zwei separate Google-Projekte und eine private Konfigurationsdatei auf dem Botserver. Das Abo enthält 10 US-Dollar, nicht 10 Euro. Die Standardgrenze beträgt 9,50 US-Dollar mit Reserve. Diese Anzeige ist kein Live-Guthabenstand von Google. Den bezahlten Zugang nur mit eingelöstem Guthaben und einem ausschließlich für diesen Bot verwendeten Projekt aktivieren.</p>
 </section>
