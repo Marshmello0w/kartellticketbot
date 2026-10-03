@@ -15,7 +15,7 @@ const sqliteMiddleware = require('./lib/middleware/prisma-sqlite');
 const ms = require('ms');
 
 module.exports = class Client extends ComponentClient {
-	constructor() {
+	constructor(config = {}, log = {}) {
 		super(
 			{
 				intents: [
@@ -41,9 +41,9 @@ module.exports = class Client extends ComponentClient {
 			{ baseDir: __dirname },
 		);
 
-		this.config = {};
-		this.log = {};
-		this.init();
+		this.config = config;
+		this.log = log;
+		this.initialized = this.init();
 	}
 
 	async init(reload = false) {
@@ -110,6 +110,7 @@ module.exports = class Client extends ComponentClient {
 	}
 
 	async login(token) {
+		await this.initialized;
 		const levels = ['error', 'info', 'warn'];
 		if (this.config.logs.level === 'debug') levels.push('query');
 
@@ -149,7 +150,7 @@ module.exports = class Client extends ComponentClient {
 	}
 
 	async destroy() {
-		await this.prisma.$disconnect();
+		await this.prisma?.$disconnect();
 		return super.destroy();
 	}
 };

@@ -4,6 +4,7 @@ const {
 	Composer,
 	LineCounter,
 	Parser,
+	parseDocument,
 } = require('yaml');
 
 function resolve(ast, key) {
@@ -24,6 +25,18 @@ for (const file of files) {
 	locales.push(locale);
 	const content = fs.readFileSync(`./src/i18n/${file}`, 'utf8');
 	const lineCounter = new LineCounter();
+	const checked = parseDocument(content, { lineCounter });
+	if (checked.errors.length) {
+		for (const error of checked.errors) {
+			errors.push({
+				col: error.linePos?.[0]?.col || 1,
+				line: error.linePos?.[0]?.line || 1,
+				locale,
+				message: error.message,
+			});
+		}
+		continue;
+	}
 	const parser = new Parser(lineCounter.addNewLine);
 	const tokenGenerator = parser.parse(content);
 	// Unfortunately needs to be parsed twice because `Generator<Token>` is single-use?

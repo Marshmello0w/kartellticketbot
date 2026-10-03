@@ -75,11 +75,17 @@ process.on('SIGTERM', () => exit('SIGTERM'));
 
 process.on('SIGINT', () => exit('SIGINT'));
 
-process.on('uncaughtException', (error, origin) => {
-	log.notice(`Discord Tickets v${pkg.version} on Node.js ${process.version} (${process.platform})`);
-	log.warn(origin === 'uncaughtException' ? 'Uncaught exception' : 'Unhandled promise rejection' + ` (${error.name})`);
-	log.error(error);
-});
+function reportError(error, origin) {
+	try {
+		log.notice(`Discord Tickets v${pkg.version} on Node.js ${process.version} (${process.platform})`);
+		log.warn(origin === 'startup' ? 'Startup failure' : origin === 'uncaughtException' ? 'Uncaught exception' : `Unhandled promise rejection (${error.name})`);
+		log.error(error);
+	} catch {
+		// Even a broken/uninitialized logger must not mask the original error.
+		console.error(origin, error);
+	}
+}
+process.on('uncaughtException', reportError);
 
 process.on('warning', warning => log.warn(warning.stack || warning));
 
@@ -110,6 +116,7 @@ config = client.config;
 log = client.log;
 
 // start the bot and then the web server
-client.login().then(() => {
-	http(client);
+client.login().then(() => http(client)).catch(error => {
+	reportError(error, 'startup');
+	process.exit(1);
 });
