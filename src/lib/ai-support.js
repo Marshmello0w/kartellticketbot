@@ -12,7 +12,6 @@ const Language = require('./ai-language');
 const include = {
 	guild: true,
 	category: true,
-	questionAnswers: { include: { question: true } },
 };
 const MAX_REPLIES = 3;
 const running = new WeakSet();
@@ -127,41 +126,9 @@ async function transcriptContext(client, ticket, task, channel) {
 		if (message.author.bot || message.webhookId || message.system) continue;
 		if (await participantSide(client, ticket, message.author.id) === 'STAFF') return { staff: true };
 	}
-	const known = await client.prisma.aiTask.findMany({
-		where: {
-			ticketId: ticket.id,
-			state: 'sent',
-			discordMessageId: { not: null },
-		},
-		select: { discordMessageId: true },
-	});
-	const ids = new Set(known.map(item => item.discordMessageId));
-	const conversation = [];
-	for (const message of sorted) {
-		if (message.webhookId || message.system) continue;
-		if (message.author.bot && !ids.has(message.id)) continue;
-		conversation.push({
-			role: message.author.bot ? 'assistant' : 'user',
-			text: String(message.content || message.embeds?.[0]?.description || '').slice(0, 3000),
-			attachments: (message.attachments?.size || 0) > 0,
-		});
-	}
 	const decrypt = value => require('./threads').pools.crypto.queue(worker => worker.decrypt(value));
-	const context = {
-		category: ticket.category?.name || '',
-		conversation: conversation.slice(-12),
-		...await Language.context(client, ticket, channel),
-	};
-	if (ticket.topic) context.topic = String(await decrypt(ticket.topic)).slice(0, 3000);
-	context.answers = [];
-	for (const entry of ticket.questionAnswers.slice(0, 12)) {
-		if (entry.value) {
-			context.answers.push({
-				question: entry.question.label,
-				answer: String(await decrypt(entry.value)).slice(0, 1000),
-			});
-		}
-	}
+	const context = { responseLanguage: await Language.supportLanguage(client, ticket, channel) };
+	const safeText = require('./faq-learning').safeText;
 	if (!task.initial) {
 		const trigger = messages.get(task.id) || await channel.messages.fetch({
 			message: task.id,
@@ -170,13 +137,14 @@ async function transcriptContext(client, ticket, task, channel) {
 		}).catch(() => null);
 		if (!trigger || trigger.author.bot || trigger.webhookId || trigger.system) return { missing: true };
 		context.latestQuestion = {
-			text: trigger.content.slice(0, 3000),
+			text: safeText(trigger.content).slice(0, 3000),
 			attachments: trigger.attachments.size > 0,
 		};
 	} else {
-		context.latestQuestion = context.conversation.at(-1) || {
-			text: context.topic || '',
-			attachments: false,
+		const latest = sorted.filter(message => !message.author.bot && !message.webhookId && !message.system && message.author.id === ticket.createdById).at(-1);
+		context.latestQuestion = {
+			text: safeText(latest?.content || (ticket.topic ? await decrypt(ticket.topic) : '')).slice(0, 3000),
+			attachments: (latest?.attachments?.size || 0) > 0,
 		};
 	}
 	return context;
@@ -349,8 +317,7 @@ async function processTask(client, task, generator) {
 				});
 				return;
 			}
-			const supportKnowledge = [knowledge(ticket), await require('./faq-learning').getKnowledge(client.prisma, ticket)].filter(Boolean).join('\n\n');
-			if (ticket.aiReplies >= MAX_REPLIES || !supportKnowledge) return await human(client, ticket, task, ticket.aiReplies >= MAX_REPLIES ? 'LIMIT' : 'KNOWLEDGE');
+			if (ticket.aiReplies >= MAX_REPLIES) return await human(client, ticket, task, 'LIMIT');
 			const context = await transcriptContext(client, ticket, task, channel);
 			if (context.staff) return await stop(client, ticket.id);
 			if (context.missing) {
@@ -370,13 +337,18 @@ async function processTask(client, task, generator) {
 				}
 				return await human(client, ticket, task, 'ATTACHMENT');
 			}
-			if (!context.responseLanguage && !context.creatorFirstText.trim()) {
+			if (!context.responseLanguage) {
 				await client.prisma.aiTask.updateMany({
 					where: { id: task.id },
 					data: { state: 'cancelled' },
 				});
 				return;
 			}
+			const supportKnowledge = [knowledge(ticket), await require('./faq-learning').getKnowledge(client.prisma, ticket, {
+				language: context.responseLanguage,
+				question: context.latestQuestion.text,
+			})].filter(Boolean).join('\n\n');
+			if (!supportKnowledge) return await human(client, ticket, task, 'KNOWLEDGE');
 			const claim = await client.prisma.aiTask.updateMany({
 				where: {
 					id: task.id,

@@ -71,6 +71,10 @@ Nach dem normalen Bot-Update und Neustart:
    Automatisch verwendet die erste Textnachricht des Ticket-Erstellers beziehungsweise
    dessen zuvor eingegebenes Ticketthema. Die Sprache bleibt für dieses Ticket
    gespeichert, auch nach weiteren Nachrichten, Kategorieänderungen oder Neustarts.
+   Die automatische Erkennung erfolgt lokal im Bot. Alte Nachrichten werden dafür
+   nicht an Google übertragen. Bei nicht eindeutig erkennbaren kurzen Angaben
+   wie „VIP“ gilt die Serversprache; für feste DE-/EN-Kategorien die Antwortsprache
+   deshalb ausdrücklich einstellen.
 4. Unter **Texte** Button „Supporter anfordern“ und KI-Hinweise anpassen. Auch hier gilt
    Kategorie → Server → Standard. Bestehende Nachrichten werden nicht umgeschrieben.
 
@@ -101,6 +105,13 @@ Ein Eintrag gilt für seine Kategorie oder nach Umstellung für den gesamten Ser
 Nur freigegebene Einträge ergänzen unmittelbar das bisherige Supportwissen; Entwürfe
 und verworfene Einträge werden von der antwortenden KI nicht verwendet.
 Wiederholte Analysen überschreiben keine bereits vorhandenen Einträge.
+
+Beim Erstsupport werden nur freigegebene FAQ der gespeicherten Ticketsprache und
+der passenden Kategorie beziehungsweise des Servers lokal durchsucht. Höchstens
+vier relevante Einträge, zusammen maximal 6 KB, ergänzen das manuelle Supportwissen.
+Bei gleicher Frage hat ein Kategorie-Eintrag Vorrang vor dem Server-Eintrag.
+Die Suche benötigt keinen zusätzlichen KI-Aufruf. Unpassende oder fremdsprachige
+Einträge werden nicht mitgeschickt. Änderungen gelten bei der nächsten Anfrage.
 
 Die Analyse teilt sich kostenlose und bezahlte Kontingente sowie das gespeicherte
 Kostenlimit mit dem Erstsupport. Ist kein Kontingent verfügbar, bleibt sie mit
@@ -145,9 +156,21 @@ Bei Zustellfehlern wird die gespeicherte Antwort erneut zugestellt, ohne die KI 
 einmal aufzurufen. Bereits gesendete Nachrichten werden anhand ihrer Antwortreferenz
 und ihres Buttons erkannt.
 
-Zur Beantwortung werden Supportwissen, Ticketthema, Formularantworten und begrenzter
-Chatkontext an Google übertragen. Passwörter und Zugangsdaten gehören nicht in diese
-Felder. Die Verarbeitung richtet sich nach den Google-Bedingungen des jeweiligen
+Zur Beantwortung werden ausschließlich das manuelle Supportwissen, relevante
+freigegebene FAQ, die aktuelle Frage und der lokal bestimmte Sprachcode an Google
+übertragen. Kein Chatverlauf, keine früheren KI-Antworten, keine Formularantworten,
+kein zusätzliches Ticketthema und keine vollständigen Transkripte werden mitgesendet.
+Bei einer Anfrage unmittelbar nach Erstellung kann das gerade eingegebene Ticketthema
+selbst die aktuelle Frage sein. Erkennbare Zugangsdaten werden aus der aktuellen
+Frage entfernt; Passwörter und Schlüssel trotzdem niemals in Discord eingeben.
+Antworten bleiben kurz; das Ausgabelimit beträgt 384 Tokens. Rückfragen, die nur
+mit früherem Verlauf verständlich wären, müssen eigenständig formuliert werden.
+
+Nur das ausdrücklich ausgeführte **`/faq-analyze`** sendet weiterhin den oben
+beschriebenen, bereinigten Ausschnitt mit menschlichen Belegen zur FAQ-Erstellung.
+Diese Verwaltungsanalyse ist vom laufenden Erstsupport getrennt. Lokal aus
+Transkripten vorbereitete FAQ können stattdessen als Supportwissen hinterlegt werden.
+Die Verarbeitung richtet sich nach den Google-Bedingungen des jeweiligen
 kostenlosen/bezahlten Zugangs.
 
 ## Quellen

@@ -1,4 +1,5 @@
 const Gemini = require('./gemini-support');
+const Input = require('./ai-input');
 
 const crypt = (method, text) => require('./threads').pools.crypto.queue(worker => worker[method](text));
 function configured(category) {
@@ -97,9 +98,18 @@ async function pin(client, ticketId, language) {
 		data: { aiLanguage: language },
 	});
 }
+async function supportLanguage(client, ticket, channel) {
+	const seed = await context(client, ticket, channel);
+	if (seed.responseLanguage) return seed.responseLanguage;
+	if (!seed.creatorFirstText.trim()) return null;
+	const language = Input.language(seed.creatorFirstText, ticket.guild?.locale?.split('-')[0]);
+	await pin(client, ticket.id, language);
+	return language;
+}
 module.exports = {
 	configured,
 	capture,
 	context,
 	pin,
+	supportLanguage,
 };

@@ -323,17 +323,23 @@ async function tick(client) {
 function validateEntry(input) {
 	if (!input || typeof input.question !== 'string' || !input.question.trim() || input.question.length > 240 || typeof input.answer !== 'string' || !input.answer.trim() || input.answer.length > 1800 || !Gemini.validLanguage(input.language)) throw Object.assign(new Error('Frage (max. 240), Antwort (max. 1.800) und gültige Sprache sind erforderlich.'), { statusCode: 400 });
 }
-async function getKnowledge(db, ticket) {
+async function getKnowledge(db, ticket, lookup = null) {
 	if (!db.faqEntry) return '';
+	if (lookup && (!Gemini.validLanguage(lookup.language) || !lookup.question?.trim())) return '';
 	const entries = await db.faqEntry.findMany({
 		where: {
 			guildId: ticket.guildId,
 			status: 'approved',
+			...(lookup ? { language: lookup.language } : {}),
 			OR: [{ categoryId: null }, { categoryId: ticket.categoryId }],
 		},
 		orderBy: { updatedAt: 'desc' },
-		take: 50,
+		take: lookup ? 500 : 50,
 	});
+	if (lookup) {
+		const search = require('./faq-search');
+		return search.format(search.select(entries, lookup.question, ticket.categoryId));
+	}
 	let text = '';
 	for (const entry of entries) {
 		const item = '\nFAQ (' + entry.language + '): ' + entry.question + '\n' + entry.answer + '\n';
