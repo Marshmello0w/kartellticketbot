@@ -22,5 +22,17 @@ module.exports = class extends Listener {
 			await client.tickets.finallyClose(ticket.id, { reason: 'channel deleted' });
 			this.client.log.info.tickets(`Closed ticket ${ticket.id} because the channel was deleted`);
 		}
+		if (ticket) {
+			await client.prisma.ticket.updateMany({
+				where: {
+					id: ticket.id,
+					open: false,
+				},
+				data: {
+					deleted: true,
+					channelDeletePending: false,
+				},
+			});
+		}
 	}
 };

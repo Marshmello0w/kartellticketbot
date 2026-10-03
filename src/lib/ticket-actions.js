@@ -18,12 +18,12 @@ const fail = key => {
 	error.supportKey = `ticket.support.errors.${key}`;
 	throw error;
 };
-async function context(client, guildId, ticketId, actorId, allowCreator = false) {
+async function context(client, guildId, ticketId, actorId, allowCreator = false, allowRetained = false) {
 	const ticket = await client.prisma.ticket.findUnique({
 		where: { id: ticketId },
 		include,
 	});
-	if (!ticket?.open || ticket.guildId !== guildId || !ticket.category) fail('closed');
+	if (!ticket || !ticket.open && !allowRetained || ticket.deleted || ticket.channelDeletePending || ticket.guildId !== guildId || !ticket.category) fail('closed');
 	const guild = client.guilds.cache.get(guildId);
 	const creator = allowCreator && ticket.createdById === actorId;
 	if (!guild || !creator && !await isCategoryStaff(client, guild, ticket.category, actorId)) fail('forbidden');
@@ -49,7 +49,7 @@ async function performAction(client, {
 	return exclusive(client, ticketId, async () => {
 		const {
 			ticket, guild, channel, actor, admin,
-		} = await context(client, guildId, ticketId, actorId, action === 'transfer');
+		} = await context(client, guildId, ticketId, actorId, action === 'transfer', ['rename', 'priority'].includes(action));
 		const original = {}, updated = {};
 		// Team actions permanently end automated triage for this ticket.
 		await client.prisma.ticket.updateMany({
@@ -166,7 +166,9 @@ async function performAction(client, {
 			const result = await client.prisma.ticket.updateMany({
 				where: {
 					id: ticketId,
-					open: true,
+					open: ticket.open,
+					deleted: false,
+					channelDeletePending: false,
 				},
 				data: {
 					[field]: action === 'priority' ? value : name,

@@ -69,6 +69,12 @@ module.exports = class RemoveSlashCommand extends SlashCommand {
 		}
 
 		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
+		if (!ticket.open || ticket.guildId !== interaction.guildId) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.already_closed'),
+				embeds: [],
+			});
+		}
 
 		if (
 			ticket.id !== interaction.channel.id &&
@@ -102,7 +108,18 @@ module.exports = class RemoveSlashCommand extends SlashCommand {
 			});
 		}
 
-		await ticketChannel.permissionOverwrites.delete(member, `${interaction.user.tag} removed ${member.user.tag} from the ticket`);
+		const changed = await require('../../lib/ticket-actions').exclusive(client, ticket.id, async () => {
+			const fresh = await client.prisma.ticket.findUnique({ where: { id: ticket.id } });
+			if (!fresh?.open) return false;
+			await ticketChannel.permissionOverwrites.delete(member, `${interaction.user.tag} removed ${member.user.tag} from the ticket`);
+			return true;
+		});
+		if (!changed) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.already_closed'),
+				embeds: [],
+			});
+		}
 
 		await ticketChannel.send({
 			embeds: [

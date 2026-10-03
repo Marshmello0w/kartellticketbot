@@ -36,7 +36,7 @@ module.exports = class extends Listener {
 			include: { guild: true },
 			where: { id: newMessage.channel.id },
 		});
-		if (!ticket) return;
+		if (!ticket?.open) return;
 
 		if (ticket.guild.archive) {
 			try {

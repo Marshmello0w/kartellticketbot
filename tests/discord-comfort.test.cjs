@@ -139,7 +139,9 @@ test('SQLite: claim race, staff handoff, authorization and rollback; category mo
  const moved=await f.read(id); assert.equal(moved.categoryId,f.en.id); assert.equal(moved.claimedById,null); assert.equal(moved.priority,'HIGH'); assert.equal(moved.channelBaseName,'ticket-1');
  await act(f.ids.admin,'rename','🔴👤mein-ticket'); assert.equal((await f.read(id)).channelBaseName,'mein-ticket');
  await f.db.ticket.update({where:{id},data:{open:false}});
- await assert.rejects(act(f.ids.admin,'priority','LOW'),error=>error.supportKey==='ticket.support.errors.closed');
+ await act(f.ids.admin,'priority','LOW');assert.equal((await f.read(id)).priority,'LOW');
+ await f.db.ticket.update({where:{id},data:{channelDeletePending:true}});
+ await assert.rejects(act(f.ids.admin,'priority','HIGH'),error=>error.supportKey==='ticket.support.errors.closed');
 });
 test('SQLite: creator transfer keeps ownership and staff handoff separate, status and priority survive', sqlite, async t => {
  const f = await fixture(t), row = await f.create({priority:'MEDIUM',lastParticipantSide:'STAFF',lastParticipantAt:new Date(Date.now()-600000)});

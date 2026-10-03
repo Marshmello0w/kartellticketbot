@@ -29,7 +29,7 @@ module.exports = class extends Listener {
 			include: { guild: true },
 			where: { id: message.channel.id },
 		});
-		if (!ticket) return;
+		if (!ticket?.open) return;
 
 		let content = message.cleanContent;
 

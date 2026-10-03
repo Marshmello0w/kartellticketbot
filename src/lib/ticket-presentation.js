@@ -62,7 +62,7 @@ function stripManagedPrefix(name) {
 	return base || 'ticket';
 }
 function channelName(ticket, now = Date.now()) {
-	const status = ticket.guild.automaticTicketStatus === false ? '' : WAIT_EMOJI[waitingState(ticket, now)];
+	const status = ticket.open === false || ticket.guild.automaticTicketStatus === false ? '' : WAIT_EMOJI[waitingState(ticket, now)];
 	const prefix = (PRIORITY[ticket.priority] || '') + status;
 	const base = ticket.channelBaseName || 'ticket-' + ticket.number;
 	return prefix + Array.from(base).slice(0, 100 - Array.from(prefix).length).join('');
@@ -210,7 +210,7 @@ function queueName(client, ticketId) {
 				where: { id: ticketId },
 				include,
 			});
-			if (!fresh?.open) break;
+			if (!fresh || fresh.deleted || fresh.channelDeletePending) break;
 			const channel = await client.channels.fetch(ticketId);
 			const desired = channelName(fresh);
 			if (channel && channel.name !== desired && !(job.appliedDesired === desired && job.appliedName === channel.name)) {
@@ -236,7 +236,10 @@ async function syncOnce(client, ticketId, history) {
 	if (!ticket) return;
 	if (!ticket.open || ticket.overviewChannelId && ticket.overviewChannelId !== ticket.guild.ticketOverviewChannel) {
 		await removeOverview(client, ticket);
-		if (!ticket.open) return;
+		if (!ticket.open) {
+			if (!ticket.deleted && !ticket.channelDeletePending) queueName(client, ticketId);
+			return;
+		}
 		ticket.overviewChannelId = ticket.overviewMessageId = null;
 	}
 	let channel;

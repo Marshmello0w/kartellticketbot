@@ -68,6 +68,7 @@ async function collect(client, ticket) {
 				...(before ? { before } : {}),
 			});
 			for (const message of page.values()) {
+				if (!ticket.open && ticket.closedAt && +message.createdAt > +ticket.closedAt) continue;
 				messages.set(message.id, {
 					id: message.id,
 					text: message.content || '',

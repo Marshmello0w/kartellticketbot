@@ -1,6 +1,12 @@
 const fs = require('node:fs');
-const { PermissionsBitField } = require('discord.js');
-const { participantSide } = require('./ticket-presentation');
+const {
+	ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField,
+} = require('discord.js');
+const {
+	participantSide, isCategoryStaff,
+} = require('./ticket-presentation');
+const { exclusive } = require('./ticket-actions');
+const { getSupportMessages } = require('./support-texts');
 const {
 	markClosed, spool,
 } = require('./drive-archive');
@@ -29,12 +35,12 @@ async function hideParticipants(client, ticket, channel) {
 	const botRoles = channel.guild.members.me?.roles?.cache;
 	const deny = async (id, hide) => {
 		const current = overwrites.cache.get(id);
-		const flags = hide ? [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] : [PermissionsBitField.Flags.SendMessages];
-		if (current?.deny.has(flags)) return;
+		const flags = [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages];
+		if (hide ? current?.deny.has(flags) : current?.allow.has(PermissionsBitField.Flags.SendMessages)) return;
 		await overwrites.edit(id, {
 			...(hide ? { ViewChannel: false } : {}),
-			SendMessages: false,
-		}, 'Ticket closed; securing archive');
+			SendMessages: !hide,
+		}, 'Ticket closed; staff workspace retained');
 	};
 	// Deny other role access too, while preserving category staff and bot visibility.
 	for (const overwrite of overwrites.cache.values()) {
@@ -46,6 +52,59 @@ async function hideParticipants(client, ticket, channel) {
 	if (ticket.createdById !== client.user.id) await deny(ticket.createdById, true);
 }
 
+async function closedControls(client, ticket, channel) {
+	const getMessage = await getSupportMessages(client, { ticketId: ticket.id });
+	const archived = ticket.guild.archive && process.env.OVERRIDE_ARCHIVE !== 'false';
+	const row = new ActionRowBuilder().addComponents(new ButtonBuilder()
+		.setCustomId(JSON.stringify({
+			action: 'delete',
+			ticket: ticket.id,
+		}))
+		.setLabel(getMessage('buttons.delete.text')).setEmoji('🗑️').setStyle(ButtonStyle.Danger));
+	if (archived) {
+		row.addComponents(new ButtonBuilder()
+			.setCustomId(JSON.stringify({
+				action: 'transcript',
+				ticket: ticket.id,
+			}))
+			.setLabel(getMessage('buttons.transcript.text')).setEmoji(getMessage('buttons.transcript.emoji')).setStyle(ButtonStyle.Secondary));
+	}
+	// Old close/claim/edit buttons must not grant access or start a second closure.
+	if (ticket.openingMessageId) {
+		try {
+			const opening = await channel.messages.fetch(ticket.openingMessageId);
+			if (opening?.components?.length) await opening.edit({ components: [] });
+		} catch (error) {
+			if (error.code !== 10008) throw error;
+		}
+	}
+	if (ticket.closedControlMessageId) {
+		try {
+			await channel.messages.fetch(ticket.closedControlMessageId);
+			return;
+		} catch (error) {
+			if (error.code !== 10008) throw error;
+		}
+	}
+	const footer = 'closed:' + ticket.id;
+	const recent = await channel.messages.fetch({ limit: 100 });
+	let sent = recent.find(message => message.author?.id === client.user.id && message.embeds?.some(embed => embed.footer?.text === footer));
+	if (!sent) {
+		sent = await channel.send({
+			embeds: [new EmbedBuilder().setColor(ticket.guild.successColour).setTitle(getMessage('ticket.close.closed.title'))
+				.setDescription(getMessage('ticket.close.' + (archived ? 'retained' : 'retained_no_archive'))).setFooter({ text: footer })],
+			components: [row],
+			allowedMentions: { parse: [] },
+			nonce: ticket.id,
+			enforceNonce: true,
+		});
+	}
+	await client.prisma.ticket.update({
+		where: { id: ticket.id },
+		data: { closedControlMessageId: sent.id },
+	});
+}
+
 async function finishNow(client, id) {
 	let ticket = await client.prisma.ticket.findUnique({
 		where: { id },
@@ -54,7 +113,7 @@ async function finishNow(client, id) {
 			category: true,
 		},
 	});
-	if (!ticket || ticket.open || !ticket.channelDeletePending) return;
+	if (!ticket || ticket.open || !(ticket.closeChannelPending || ticket.closeCapturePending || ticket.channelDeletePending)) return;
 	if (ticket.channelDeleteNextAttemptAt && ticket.channelDeleteNextAttemptAt > new Date()) return;
 	try {
 		let channel = client.channels.cache.get(id);
@@ -66,6 +125,7 @@ async function finishNow(client, id) {
 			}
 		}
 		if (channel && channel.id !== id) throw Object.assign(new Error('Wrong ticket channel'), { code: 'PERMISSION' });
+		if (channel?.guildId && channel.guildId !== ticket.guildId) throw Object.assign(new Error('Wrong ticket guild'), { code: 'PERMISSION' });
 		if (channel) {
 			await hideParticipants(client, ticket, channel);
 		}
@@ -88,6 +148,32 @@ async function finishNow(client, id) {
 			});
 		}
 		if (client.prisma.driveArchive) await markClosed(client, ticket);
+		if (channel && ticket.closeChannelPending && !ticket.channelDeletePending) await closedControls(client, ticket, channel);
+		ticket = await client.prisma.ticket.update({
+			where: { id },
+			data: {
+				closeChannelPending: false,
+				...(channel ? {} : {
+					deleted: true,
+					channelDeletePending: false,
+				}),
+			},
+			include: {
+				guild: true,
+				category: true,
+			},
+		});
+		// Closing never requests deletion. Only the separate Delete action does.
+		if (!ticket.channelDeletePending) {
+			await client.prisma.ticket.update({
+				where: { id },
+				data: {
+					channelDeleteNextAttemptAt: null,
+					channelDeleteAttempts: 0,
+				},
+			});
+			return;
+		}
 		const pending = await client.prisma.driveAsset.findMany({
 			where: {
 				archiveId: id,
@@ -112,6 +198,7 @@ async function finishNow(client, id) {
 		await client.prisma.ticket.update({
 			where: { id },
 			data: {
+				deleted: true,
 				channelDeletePending: false,
 				channelDeleteNextAttemptAt: null,
 				channelDeleteAttempts: 0,
@@ -126,14 +213,14 @@ async function finishNow(client, id) {
 				channelDeleteNextAttemptAt: new Date(Date.now() + (attempts === 1 ? 60000 : attempts === 2 ? 300000 : 900000)),
 			},
 		});
-		client.log.warn('Ticket #%d: channel retained for archive (%s)', ticket.number, error.code || error.name);
+		client.log.warn('Ticket #%d: close/delete will be retried (%s)', ticket.number, error.code || error.name);
 	}
 }
 
 function finishCloseChannel(client, id) {
 	if (!jobs.has(client)) jobs.set(client, new Map());
 	const active = jobs.get(client);
-	if (!active.has(id)) active.set(id, finishNow(client, id).finally(() => active.delete(id)));
+	if (!active.has(id)) active.set(id, exclusive(client, id, () => finishNow(client, id)).finally(() => active.delete(id)));
 	return active.get(id);
 }
 
@@ -141,8 +228,10 @@ async function finishPendingCloseChannels(client) {
 	const tickets = await client.prisma.ticket.findMany({
 		where: {
 			open: false,
-			channelDeletePending: true,
-			OR: [{ channelDeleteNextAttemptAt: null }, { channelDeleteNextAttemptAt: { lte: new Date() } }],
+			AND: [
+				{ OR: [{ closeChannelPending: true }, { closeCapturePending: true }, { channelDeletePending: true }] },
+				{ OR: [{ channelDeleteNextAttemptAt: null }, { channelDeleteNextAttemptAt: { lte: new Date() } }] },
+			],
 		},
 		select: { id: true },
 		take: 50,
@@ -150,8 +239,45 @@ async function finishPendingCloseChannels(client) {
 	for (let index = 0; index < tickets.length; index += 2) await Promise.allSettled(tickets.slice(index, index + 2).map(ticket => finishCloseChannel(client, ticket.id)));
 }
 
+async function requestDelete(client, {
+	guildId, ticketId, actorId,
+}) {
+	await exclusive(client, ticketId, async () => {
+		const ticket = await client.prisma.ticket.findUnique({
+			where: { id: ticketId },
+			include: {
+				guild: true,
+				category: true,
+			},
+		});
+		const fail = code => {
+			throw Object.assign(new Error(code), { deleteCode: code });
+		};
+		if (!ticket || ticket.guildId !== guildId) fail('missing');
+		const guild = client.guilds.cache.get(guildId);
+		if (!guild || !await isCategoryStaff(client, guild, ticket.category, actorId)) fail('forbidden');
+		if (ticket.open) fail('open');
+		if (ticket.deleted) fail('deleted');
+		await client.prisma.ticket.updateMany({
+			where: {
+				id: ticketId,
+				guildId,
+				open: false,
+				deleted: false,
+				channelDeletePending: false,
+			},
+			data: {
+				channelDeletePending: true,
+				channelDeleteNextAttemptAt: null,
+				channelDeleteAttempts: 0,
+			},
+		});
+	});
+}
+
 module.exports = {
 	finishCloseChannel,
 	finishPendingCloseChannels,
 	pinnedIds,
+	requestDelete,
 };

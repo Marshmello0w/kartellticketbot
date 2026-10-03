@@ -1,4 +1,6 @@
 buttons:
+  delete:
+    text: Delete
   ai_human:
     text: Request a supporter
   accept_close_request:
@@ -57,6 +59,8 @@ commands:
         description: The message has been pinned.
         title: ✅ Pinned message
   slash:
+    delete:
+      description: Delete a closed ticket channel after its data is secured
     faq-analyze:
       description: Analyze a ticket chat and create FAQ suggestions for the portal
       options:
@@ -107,7 +111,7 @@ commands:
           name: reason
     force-close:
       closed_one:
-        description: The channel will be deleted in a few seconds.
+        description: Participant access is removed. The channel stays available to staff until Delete is used.
         title: ✅ Ticket closed
       confirm_multiple:
         description: >
@@ -116,7 +120,7 @@ commands:
           {tickets}
         title: ❓ Are you sure?
       confirmed_multiple:
-        description: The channels will be deleted in a few seconds.
+        description: Participant access is removed. The channels stay available to staff until Delete is used.
         title:
           - ✅ Closing %d ticket
           - ✅ Closing %d tickets
@@ -517,8 +521,11 @@ ticket:
     no_value: "*No response*"
   claimed: 🙌 {user} has claimed this ticket.
   close:
+    already_closed: This ticket is already closed. The channel stays available to staff until Delete is used.
+    retained: The creator and other participants can no longer see this channel. Archiving is in progress. Staff can still use /faq-analyze, /transcript and other staff commands. Use Delete or /delete to remove the channel once the required data is secured.
+    retained_no_archive: The creator and other participants can no longer see this channel. Staff commands remain available. Message archiving is disabled. Use Delete or /delete to remove the channel.
     closed:
-      description: This channel will be deleted in a few seconds…
+      description: Participant access is removed and archiving starts. The channel stays available to staff until Delete is used.
       title: ✅ Ticket closed
     forbidden:
       description: You don't have permission to close this ticket.
@@ -541,6 +548,13 @@ ticket:
       This ticket will be closed due to inactivity <t:{timestamp}:R>.
       Send a message to cancel this automation.
     title: ⌛ This ticket will be closed soon
+  delete:
+    queued: Deletion is queued. The channel will be removed once messages and required files are secured. Pending backups are retried automatically.
+    missing: This channel is not a ticket in this server.
+    forbidden: Only the category's supporters and administrators may delete this ticket channel.
+    open: Close the ticket with Close or /close first.
+    deleted: This ticket channel has already been deleted.
+    failed: Deletion could not be requested right now. Please try again.
   created:
     description: "Your ticket channel has been created: {channel}."
     title: ✅ Ticket created

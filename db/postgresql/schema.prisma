@@ -260,6 +260,8 @@ model Ticket {
     aiState String @default("active")
     aiReplies Int @default(0)
     channelDeletePending Boolean @default(false)
+    closeChannelPending Boolean @default(false)
+    closedControlMessageId String?
     closeCapturePending Boolean @default(false)
     channelDeleteAttempts Int @default(0)
     channelDeleteNextAttemptAt DateTime?

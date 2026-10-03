@@ -2,8 +2,8 @@ const { recordParticipant } = require('../lib/ticket-presentation');
 const { getSupportMessages } = require('../lib/support-texts');
 const { Button } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../lib/embed');
-const { isStaff } = require('../lib/users');
 const { MessageFlags } = require('discord.js');
+const { isCategoryStaff } = require('../lib/ticket-presentation');
 
 module.exports = class CloseButton extends Button {
 	constructor(client, options) {
@@ -27,7 +27,13 @@ module.exports = class CloseButton extends Button {
 		} else {
 			const ticket = await client.tickets.getTicket(interaction.channel.id, true); // true to override cache and load new feedback
 			const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
-			const staff = await isStaff(interaction.guild, interaction.user.id);
+			if (!ticket.open) {
+				return interaction.reply({
+					content: getMessage('ticket.close.already_closed'),
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+			const staff = await isCategoryStaff(client, interaction.guild, ticket.category, interaction.user.id);
 
 			if (id.expect === 'staff' && !staff) {
 				return await interaction.reply({

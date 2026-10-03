@@ -1,4 +1,6 @@
 buttons:
+  delete:
+    text: Löschen
   ai_human:
     text: Supporter anfordern
   cancel:
@@ -57,6 +59,8 @@ commands:
     create:
       name: Ticket aus Nachricht erstellen
   slash:
+    delete:
+      description: Geschlossenen Ticketkanal nach der Sicherung löschen
     faq-analyze:
       description: Chat auswerten und FAQ-Vorschläge für die Webseite erstellen
       options:
@@ -134,10 +138,10 @@ commands:
       description: Ein Ticket zwangsweise schließen
       name: schließen-erzwingen
       closed_one:
-        description: Das Ticket wird in ein paar Sekunden gelöscht.
+        description: Der Nutzerzugriff wird entfernt. Der Kanal bleibt für das Team bis „Löschen“ erhalten.
         title: ✅ Ticket geschlossen
       confirmed_multiple:
-        description: Die Tickets werden in ein paar Sekunden gelöscht.
+        description: Der Nutzerzugriff wird entfernt. Die Kanäle bleiben für das Team bis „Löschen“ erhalten.
         title:
           - ✅ Schließe %d Tickets
           - ✅ Schließe %d Tickets
@@ -496,8 +500,11 @@ ticket:
   answers:
     no_value: '*Keine Antwort*'
   close:
+    already_closed: Dieses Ticket ist bereits geschlossen. Für das Team bleibt der Kanal bis „Löschen“ erhalten.
+    retained: Der Nutzer und weitere Teilnehmer können diesen Kanal nicht mehr sehen. Die Archivierung läuft. Du kannst weiterhin /faq-analyze, /transcript und andere Team-Befehle verwenden. Mit „Löschen“ oder /delete wird der Kanal entfernt, sobald die benötigten Daten gesichert sind.
+    retained_no_archive: Der Nutzer und weitere Teilnehmer können diesen Kanal nicht mehr sehen. Der Kanal bleibt für Team-Befehle erhalten. Die Nachrichtenarchivierung ist deaktiviert. Mit „Löschen“ oder /delete wird der Kanal entfernt.
     closed:
-      description: Dieser Kanal wird in wenigen Sekunden gelöscht…
+      description: Der Nutzerzugriff wird entfernt und die Archivierung gestartet. Der Kanal bleibt bis „Löschen“ für das Team erhalten.
       title: ✅ Ticket geschlossen
     forbidden:
       title: ❌ Fehler
@@ -515,6 +522,13 @@ ticket:
       title: ❓ {requestedBy} möchte dieses Ticket schließen
     wait_for_user: ✋ Bitte warte bis der Benutzer antwortet.
     wait_for_staff: ✋ Bitte warte, bis das Teammitglied dieses Ticket schließt.
+  delete:
+    queued: Die Löschung ist vorgemerkt. Der Kanal wird entfernt, sobald Nachrichten und benötigte Dateien gesichert sind. Ausstehende Sicherungen werden automatisch wiederholt.
+    missing: Dieser Kanal gehört zu keinem Ticket dieses Servers.
+    forbidden: Nur zuständige Supporter und Administratoren dürfen diesen Ticketkanal löschen.
+    open: Schließe das Ticket zuerst mit „Schließen“ oder /close.
+    deleted: Dieser Ticketkanal wurde bereits gelöscht.
+    failed: Die Löschung konnte gerade nicht angefordert werden. Bitte erneut versuchen.
   created:
     title: ✅ Ticket erstellt
     description: 'Dein Ticketkanal wurde erstellt: {channel}.'

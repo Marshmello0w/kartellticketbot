@@ -69,6 +69,12 @@ module.exports = class AddSlashCommand extends SlashCommand {
 		}
 
 		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
+		if (!ticket.open || ticket.guildId !== interaction.guildId) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.already_closed'),
+				embeds: [],
+			});
+		}
 
 		if (
 			ticket.id !== interaction.channel.id &&
@@ -92,17 +98,28 @@ module.exports = class AddSlashCommand extends SlashCommand {
 		const ticketChannel = await interaction.guild.channels.fetch(ticket.id);
 		const member = interaction.options.getMember('member', true);
 
-		await ticketChannel.permissionOverwrites.edit(
-			member,
-			{
-				AttachFiles: true,
-				EmbedLinks: true,
-				ReadMessageHistory: true,
-				SendMessages: true,
-				ViewChannel: true,
-			},
-			`${interaction.user.tag} added ${member.user.tag} to the ticket`,
-		);
+		const changed = await require('../../lib/ticket-actions').exclusive(client, ticket.id, async () => {
+			const fresh = await client.prisma.ticket.findUnique({ where: { id: ticket.id } });
+			if (!fresh?.open) return false;
+			await ticketChannel.permissionOverwrites.edit(
+				member,
+				{
+					AttachFiles: true,
+					EmbedLinks: true,
+					ReadMessageHistory: true,
+					SendMessages: true,
+					ViewChannel: true,
+				},
+				`${interaction.user.tag} added ${member.user.tag} to the ticket`,
+			);
+			return true;
+		});
+		if (!changed) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.already_closed'),
+				embeds: [],
+			});
+		}
 
 		await ticketChannel.send({
 			embeds: [

@@ -192,7 +192,7 @@ module.exports = class extends Listener {
 			});
 			let ticket = await client.prisma.ticket.findUnique({ where: { id: message.channel.id } });
 
-			if (ticket) {
+			if (ticket?.open) {
 				// archive messages
 				if (settings.archive) {
 					client.tickets.archiver.saveMessage(ticket.id, message)

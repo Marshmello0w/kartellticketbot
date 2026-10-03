@@ -84,6 +84,9 @@ module.exports = class TicketArchiver {
 
 	async saveMessageNow(ticketId, message, external = false) {
 		if (process.env.OVERRIDE_ARCHIVE === 'false') return false;
+		const state = await this.client.prisma.ticket.findUnique({ where: { id: ticketId } });
+		// Keep the support conversation at closure, without subsequent staff workspace messages.
+		if (state && !state.open && (!state.closeCapturePending || state.closedAt && +message.createdAt > +state.closedAt)) return true;
 
 		if (!message.member) {
 			try {

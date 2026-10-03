@@ -1,5 +1,5 @@
 const {
-	requestSync, syncTicket, participantSide,
+	requestSync, syncTicket, participantSide, isCategoryStaff,
 } = require('../ticket-presentation');
 const { performAction } = require('../ticket-actions');
 const { deliverTranscript } = require('../transcripts');
@@ -964,7 +964,7 @@ module.exports = class TicketManager {
 	 * @param {import("discord.js").ChatInputCommandInteraction|import("discord.js").ButtonInteraction} interaction
 	 */
 	async beforeRequestClose(interaction) {
-		const ticket = await this.getTicket(interaction.channel.id);
+		const ticket = await this.getTicket(interaction.channel.id, true);
 		if (!ticket) {
 			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 			const {
@@ -989,17 +989,32 @@ module.exports = class TicketManager {
 		}
 
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
-		const staff = await isStaff(interaction.guild, interaction.user.id);
+		const staff = await isCategoryStaff(this.client, interaction.guild, ticket.category, interaction.user.id);
 		const reason = interaction.options?.getString('reason', false) || null; // ?. because it could be a button interaction
+		if (!ticket.open) {
+			return interaction.reply({
+				content: getMessage('ticket.close.already_closed'),
+				flags: MessageFlags.Ephemeral,
+			});
+		}
 
 		if (ticket.createdById !== interaction.user.id && !staff) {
-			return await interaction.editReply({
+			return await interaction.reply({
+				flags: MessageFlags.Ephemeral,
 				embeds: [
 					new ExtendedEmbedBuilder()
 						.setColor(ticket.guild.errorColour)
 						.setTitle(getMessage('ticket.close.forbidden.title'))
 						.setDescription(getMessage('ticket.close.forbidden.description')),
 				],
+			});
+		}
+		if (staff && ticket.createdById !== interaction.user.id) {
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+			await interaction.editReply({ content: getMessage('ticket.close.closed.description') });
+			return this.finallyClose(ticket.id, {
+				closedBy: interaction.user.id,
+				reason,
 			});
 		}
 
@@ -1040,6 +1055,13 @@ module.exports = class TicketManager {
 		// interaction could be command, button. or modal
 		const ticket = await this.getTicket(interaction.channel.id, true);
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
+		if (!ticket.open) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.already_closed'),
+				components: [],
+				embeds: [],
+			});
+		}
 		const staff = interaction.user.id !== ticket.createdById && await isStaff(interaction.guild, interaction.user.id);
 		const closeButtonId = {
 			action: 'close',
@@ -1095,8 +1117,9 @@ module.exports = class TicketManager {
 	 * | import("discord.js").ModalSubmitInteraction} interaction
 	 */
 	async acceptClose(interaction) {
-		const ticket = await this.getTicket(interaction.channel.id);
+		const ticket = await this.getTicket(interaction.channel.id, true);
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
+		if (!ticket.open) return interaction.editReply({ content: getMessage('ticket.close.already_closed') });
 		await interaction.editReply({
 			embeds: [
 				new ExtendedEmbedBuilder({
@@ -1128,7 +1151,9 @@ module.exports = class TicketManager {
 
 		/** @type {import("@prisma/client").Ticket} */
 		const data = {
-			channelDeletePending: true,
+			channelDeletePending: false,
+			closeChannelPending: true,
+			aiState: 'human',
 			closeCapturePending: Boolean(ticket.guild.archive && process.env.OVERRIDE_ARCHIVE !== 'false'),
 			channelDeleteAttempts: 0,
 			channelDeleteNextAttemptAt: null,
@@ -1146,34 +1171,40 @@ module.exports = class TicketManager {
 		};
 
 		try {
-			if (closedBy) {
-				await this.client.prisma.user.upsert({
-					where: { id: closedBy },
-					create: { id: closedBy },
-					update: {},
+			const won = await require('../ticket-actions').exclusive(this.client, ticketId, async () => {
+				if (closedBy) {
+					await this.client.prisma.user.upsert({
+						where: { id: closedBy },
+						create: { id: closedBy },
+						update: {},
+					});
+				}
+				// Claim once; cancellation and overlapping checks cannot close twice.
+				data.closedAt = new Date();
+				const result = await this.client.prisma.ticket.updateMany({
+					data,
+					where: {
+						id: ticket.id,
+						open: true,
+						...(expectedCloseAt ? { closeScheduledAt: expectedCloseAt } : {}),
+					},
 				});
-			}
-			// Claim once; cancellation and overlapping checks cannot close twice.
-			const result = await this.client.prisma.ticket.updateMany({
-				data,
-				where: {
-					id: ticket.id,
-					open: true,
-					...(expectedCloseAt ? { closeScheduledAt: expectedCloseAt } : {}),
-				},
+				if (!result.count) return;
+				await this.client.keyv?.delete(`cache/ticket+category+feedback+guild:${ticket.id}`);
+				ticket = await this.client.prisma.ticket.findUnique({
+					include: {
+						category: true,
+						feedback: true,
+						guild: true,
+					},
+					where: { id: ticket.id },
+				});
+				this.$count.categories[ticket.categoryId] ??= {};
+				this.$count.categories[ticket.categoryId].total -= 1;
+				this.$count.categories[ticket.categoryId][ticket.createdById] -= 1;
+				return true;
 			});
-			if (!result.count) return;
-			ticket = await this.client.prisma.ticket.findUnique({
-				include: {
-					category: true,
-					feedback: true,
-					guild: true,
-				},
-				where: { id: ticket.id },
-			});
-			this.$count.categories[ticket.categoryId] ??= {};
-			this.$count.categories[ticket.categoryId].total -= 1;
-			this.$count.categories[ticket.categoryId][ticket.createdById] -= 1;
+			if (!won) return;
 		} catch (error) {
 			this.client.log.error(error);
 			return;

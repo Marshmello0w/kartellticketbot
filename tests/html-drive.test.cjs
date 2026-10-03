@@ -190,7 +190,7 @@ test('SQLite: attachment downloads continue while both Drive upload slots are oc
   clearTimeout(timeout);releaseUploads();await Promise.all(assets.map(asset=>archive.processAsset(f.client,asset.id)));
  }
 });
-test('SQLite: forced closure recovers final messages and stages files before deleting the channel, without waiting for Drive',sqlite,async t=>{
+test('SQLite: forced closure retains the channel; explicit deletion uses staged files without waiting for Drive',sqlite,async t=>{
  const f=await fixture(t),role={id:f.id,name:'Support',hexColor:'#ff9900'};
  const guild=f.client.guilds.cache.get(f.id);Object.assign(guild,{id:f.id,roles:{everyone:role},iconURL:()=>null,members:{cache:new Discord.Collection(),fetch:async()=>({})}});
  const user={id:f.userId,username:'User',globalName:'Nutzer',bot:false,discriminator:'0',displayAvatarURL:()=> 'https://cdn.discordapp.com/embed/avatars/0.png'};
@@ -215,7 +215,9 @@ test('SQLite: forced closure recovers final messages and stages files before del
  const closing=manager.finallyClose(f.ticket.id,{closedBy:f.userId});
  try{
   await Promise.race([closing,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Closure waited for Drive upload')),5000)})]);
-  assert.equal(deleted,true);assert.equal((await f.full()).open,false);assert.equal(f.files.size,0);
+  assert.equal(deleted,false);assert.equal((await f.full()).open,false);assert.equal(f.files.size,0);
+  await f.prisma.ticket.update({where:{id:f.ticket.id},data:{channelDeletePending:true,channelDeleteNextAttemptAt:null}});
+  await require('../src/lib/ticket-close-channel').finishCloseChannel(f.client,f.ticket.id);assert.equal(deleted,true);
   assert.equal(stagedAtDeletion.length,4);assert.ok(stagedAtDeletion.every(asset=>asset.localReady||asset.state==='ready'));
   assert.equal((await f.full()).channelDeletePending,false);assert.deepEqual((await f.full()).pinnedMessageIds,[opening.id]);
   const document=await transcripts.renderTranscript(f.client,await f.full());
