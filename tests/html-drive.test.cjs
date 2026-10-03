@@ -76,6 +76,15 @@ test('Google Drive validates private folders and never exposes credentials in AP
  const auth=new GoogleDrive({clientId:'c',clientSecret:'VERY_SECRET',refreshToken:'SECRET_REFRESH'},async()=>Response.json({error:'invalid_grant',secret:'VERY_SECRET'},{status:400}));
  await assert.rejects(auth.accessToken(),error=>error.code==='AUTH' && !error.message.includes('SECRET'));
 });
+
+test('attachment previews share an ID but cannot replace original signed CDN bytes',()=>{
+ const url='https://cdn.discordapp.com/attachments/111/222/pic.png?ex=abc&is=123&hm=signature';
+ const preview=url.replace('cdn.discordapp.com','media.discordapp.net')+'&format=webp&width=320&height=240&quality=low';
+ const assets=archive.contentAssets({attachments:[{id:'222',name:'pic.png',url,size:900}],embeds:[{image:{url:preview}}]},'message');
+ const matching=assets.filter(a=>a.key==='attachment:222');
+ assert.equal(matching.length,1);assert.equal(matching[0].url,url);assert.equal(matching[0].size,900);
+ assert.equal(archive.originalSourceUrl(preview),url);assert.equal(archive.originalSourceUrl('https://evil.test/attachments/111/222/pic.png'),null);
+});
 test('Google resumable upload probes persisted sessions and resumes at acknowledged byte offset',async t=>{
  const location=path.join(__dirname,'../../drive-upload-test.bin');
  fs.writeFileSync(location,Buffer.alloc(12,1)); t.after(()=>fs.rmSync(location,{force:true}));
@@ -195,7 +204,8 @@ test('SQLite: forced closure recovers final messages and stages files before del
  const uploads=new Promise(resolve=>{releaseUploads=resolve}),originalUpload=f.adapter.upload;
  f.adapter.upload=async(...args)=>{await uploads;return originalUpload(...args)};
  f.client.archiveFetch=async()=>new Response(deleted?null:Buffer.from('img'),{status:deleted?404:200});
- const ticketChannel={id:f.ticket.id,guild,deletable:true,messages:{fetch:async()=>f.messages,fetchPinned:async()=>new Discord.Collection([[opening.id,opening]])},delete:async()=>{stagedAtDeletion=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});deleted=true}};
+ let locked=false;
+ const ticketChannel={id:f.ticket.id,guild,deletable:true,permissionOverwrites:{cache:new Discord.Collection(),edit:async(id,permissions)=>{assert.ok([f.userId,f.id].includes(id));assert.equal(permissions.ViewChannel,false);assert.equal(permissions.SendMessages,false);if(id===f.userId)locked=true}},messages:{fetch:async()=>{assert.equal(locked,true);return f.messages},fetchPins:async()=>({items:[{message:opening,pinnedAt:new Date()}],hasMore:false})},delete:async()=>{assert.equal(locked,true);stagedAtDeletion=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});deleted=true}};
  const fetchChannel=f.client.channels.fetch;
  f.client.channels={cache:new Discord.Collection([[f.ticket.id,ticketChannel]]),fetch:async id=>id===f.ticket.id?ticketChannel:fetchChannel(id)};
  const Archiver=load('src/lib/tickets/archiver.js',{'../threads':{pools}});
@@ -207,6 +217,7 @@ test('SQLite: forced closure recovers final messages and stages files before del
   await Promise.race([closing,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Closure waited for Drive upload')),5000)})]);
   assert.equal(deleted,true);assert.equal((await f.full()).open,false);assert.equal(f.files.size,0);
   assert.equal(stagedAtDeletion.length,4);assert.ok(stagedAtDeletion.every(asset=>asset.localReady||asset.state==='ready'));
+  assert.equal((await f.full()).channelDeletePending,false);assert.deepEqual((await f.full()).pinnedMessageIds,[opening.id]);
   const document=await transcripts.renderTranscript(f.client,await f.full());
   assert.match(document.transcript,/Welcome/);assert.match(document.transcript,/Schließen/);assert.match(document.transcript,/Final message/);
  }finally{
@@ -228,6 +239,115 @@ test('SQLite: unavailable bytes produce an explicitly incomplete ZIP and HTML',s
  const zip=await archive.acquireZip(f.client,f.ticket.id,1024*1024),entries=await require('unzipper').Open.file(zip.path);
  assert.match((await entries.files.find(e=>e.path==='transcript.html').buffer()).toString(),/Archiv ist unvollständig/);
  assert.equal(JSON.parse((await entries.files.find(e=>e.path==='archive-info.json').buffer()).toString()).complete,false);await zip.release();
+});
+
+test('SQLite: legacy download task recovers the original attachment and resists previews from other messages',sqlite,async t=>{
+ const f=await fixture(t),[asset]=await f.record();
+ const original=crypt.decrypt(asset.sourceUrl),preview=original.replace('cdn.discordapp.com','media.discordapp.net')+'?format=webp&width=320';
+ await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,driveFileId:null,sourceUrl:crypt.encrypt(preview),errorCode:'DOWNLOAD',attempts:40,nextAttemptAt:null}});
+ const urls=[];f.client.archiveFetch=async url=>{urls.push(url);assert.equal(url,original);return new Response(fs.readFileSync(path.join(__dirname,'../portal/static/favicon.png')))};
+ await archive.processAsset(f.client,asset.id);
+ const repaired=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});assert.equal(repaired.state,'ready');assert.equal(crypt.decrypt(repaired.sourceUrl),original);
+ await archive.captureContent(f.client,await f.full(),{author:{userId:f.userId},embeds:[{image:{url:preview}}]},'other-message');
+ const kept=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});assert.equal(crypt.decrypt(kept.sourceUrl),original);assert.equal(kept.messageId,asset.messageId);assert.equal(urls.length,1);
+});
+
+test('SQLite: repeated inconsistent file sizes finish as an explicitly incomplete archive rather than retry forever',sqlite,async t=>{
+ const f=await fixture(t);await archive.ensureArchive(f.client,await f.full());
+ const id='mismatch-'+f.ticket.id;
+ await f.prisma.driveAsset.create({data:{id,archiveId:f.ticket.id,assetKey:'attachment:999',sourceUrl:crypt.encrypt('https://cdn.discordapp.com/attachments/'+f.ticket.id+'/999/image.png'),fileName:'image.png',relativePath:'files/image.png',size:4,mime:'image/png'}});
+ f.client.archiveFetch=async()=>new Response(Buffer.from('wrong-size'));
+ for(let attempt=1;attempt<=3;attempt++){
+  await f.prisma.driveAsset.update({where:{id},data:{nextAttemptAt:null}});await archive.processAsset(f.client,id);
+  const row=await f.prisma.driveAsset.findUnique({where:{id}});assert.equal(row.errorCode,'SIZE_MISMATCH');assert.equal(row.attempts,attempt);assert.equal(row.state,attempt===3?'missing':'pending');
+ }
+ assert.equal(fs.existsSync(archive.spool(f.ticket.id,'files/image.png')),false);assert.equal(fs.existsSync(archive.spool(f.ticket.id,'files/image.png.part')),false);
+ await f.close();const row=await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}});assert.equal(row.state,'ready');assert.equal(row.complete,false);
+ const zip=await archive.acquireZip(f.client,f.ticket.id,1024*1024),entries=await require('unzipper').Open.file(zip.path);
+ assert.match((await entries.files.find(e=>e.path==='transcript.html').buffer()).toString(),/Archiv ist unvollständig/);await zip.release();
+});
+
+test('SQLite: expired attachment links bypass the Discord message cache and renew before channel deletion',sqlite,async t=>{
+ const f=await fixture(t),[asset]=await f.record(),original=crypt.decrypt(asset.sourceUrl);
+ const expired=original+'?hm=expired',fresh=original+'?hm=fresh';let refreshed=0;
+ await f.prisma.driveAsset.update({where:{id:asset.id},data:{state:'pending',localReady:false,driveFileId:null,sourceUrl:crypt.encrypt(expired),errorCode:'SOURCE',nextAttemptAt:null}});
+ f.client.channels.fetch=async id=>{assert.equal(id,f.ticket.id);return{messages:{fetch:async options=>{refreshed++;assert.deepEqual(options,{message:asset.messageId,force:true,cache:false});return{attachments:new Discord.Collection([[asset.assetKey.slice(11),{url:fresh}]])}}}}};
+ const fetched=[];f.client.archiveFetch=async url=>{fetched.push(url);return url===expired?new Response(null,{status:403}):new Response(fs.readFileSync(path.join(__dirname,'../portal/static/favicon.png')))};
+ await archive.processAsset(f.client,asset.id);assert.equal(refreshed,1);assert.deepEqual(fetched,[expired,fresh]);
+ const row=await f.prisma.driveAsset.findUnique({where:{id:asset.id}});assert.equal(row.state,'ready');assert.equal(crypt.decrypt(row.sourceUrl),fresh);
+});
+
+test('SQLite: hidden closed channel survives a failed download and restart until local bytes are secured',sqlite,async t=>{
+ const f=await fixture(t);f.client.archiveFetch=async()=>new Response(null,{status:503});
+ const content={attachments:[{id:'914444444444444444',url:'https://cdn.discordapp.com/attachments/'+f.ticket.id+'/914444444444444444/image.png',name:'image.png',size:3}]};
+ await archive.captureContent(f.client,await f.full(),content,'message');
+ const assets=await f.prisma.driveAsset.findMany({where:{archiveId:f.ticket.id}});await Promise.all(assets.map(a=>archive.processAsset(f.client,a.id)));
+ const original=assets.find(a=>a.assetKey.startsWith('attachment:'));
+ const guild=f.client.guilds.cache.get(f.id);guild.members={cache:new Discord.Collection(),fetch:async()=>null};
+ const staff='914444444444444445',participant='914444444444444446';f.client.supers=[staff];
+ const overwrite=(id,type)=>({id,type,allow:new Discord.PermissionsBitField(['ViewChannel','SendMessages']),deny:new Discord.PermissionsBitField()});
+ const cache=new Discord.Collection([f.userId,staff,participant,'bot'].map(id=>[id,overwrite(id,1)]));
+ let deleted=0,captures=0,edits=0;
+ const channel={id:f.ticket.id,guild,deletable:true,permissionOverwrites:{cache,edit:async(id,permissions)=>{
+  edits++;const row=cache.get(id)||overwrite(id,1);for(const [flag,value] of Object.entries(permissions)){assert.equal(value,false);row.deny.add(flag);row.allow.remove(flag)}cache.set(id,row);
+ }},messages:{fetchPins:async()=>({items:[],hasMore:false})},delete:async()=>{assert.equal((await f.prisma.driveAsset.findUnique({where:{id:original.id}})).localReady,true);deleted++}};
+ f.client.channels={cache:new Discord.Collection([[f.ticket.id,channel]]),fetch:async()=>channel};
+ f.client.tickets={archiver:{prepareClose:async()=>{assert.equal(cache.get(f.userId).deny.has('ViewChannel'),true);assert.equal(cache.get(participant).deny.has('ViewChannel'),true);assert.equal(cache.get(staff).allow.has('ViewChannel'),true);assert.equal(cache.get('bot').allow.has('SendMessages'),true);captures++;return true},flush:async()=>{}}};
+ await f.prisma.ticket.update({where:{id:f.ticket.id},data:{open:false,closedAt:new Date(),channelDeletePending:true,closeCapturePending:true}});
+ const cleanup=require('../src/lib/ticket-close-channel');
+ await Promise.all([cleanup.finishCloseChannel(f.client,f.ticket.id),cleanup.finishCloseChannel(f.client,f.ticket.id)]);
+ let row=await f.full();assert.equal(row.open,false);assert.equal(row.channelDeletePending,true);assert.equal(row.closeCapturePending,false);assert.equal(deleted,0);assert.equal(captures,1);
+ await archive.processArchive(f.client,f.ticket.id);
+ const deadline=new Date(Date.now()+300000);await f.prisma.driveArchive.update({where:{id:f.ticket.id},data:{nextAttemptAt:deadline}});
+ await f.prisma.ticket.update({where:{id:f.ticket.id},data:{channelDeleteNextAttemptAt:null}});
+ const restored=new PrismaClient({datasources:{db:{url:process.env.TEST_DATABASE_URL}}});restored.$use(require('../src/lib/middleware/prisma-sqlite'));t.after(()=>restored.$disconnect());
+ const resumed={...f.client,prisma:restored,channels:{cache:new Discord.Collection(),fetch:async()=>channel}};
+ const previousEdits=edits;await cleanup.finishPendingCloseChannels(resumed);
+ assert.equal(edits,previousEdits);assert.equal(captures,1);assert.equal(deleted,0);assert.equal(+(await restored.driveArchive.findUnique({where:{id:f.ticket.id}})).nextAttemptAt,+deadline);
+ f.client.archiveFetch=async()=>new Response(Buffer.from('img'));f.adapter.failure='QUOTA';
+ for(const asset of assets){await restored.driveAsset.update({where:{id:asset.id},data:{nextAttemptAt:null}});await archive.processAsset(f.client,asset.id)}
+ await restored.ticket.update({where:{id:f.ticket.id},data:{channelDeleteNextAttemptAt:null}});
+ await cleanup.finishPendingCloseChannels(resumed);await cleanup.finishPendingCloseChannels(resumed);
+ row=await f.full();assert.equal(row.channelDeletePending,false);assert.equal(deleted,1);assert.equal(captures,1);assert.equal(f.files.size,0);
+});
+
+test('SQLite: failed channel lock blocks capture and deletion, retry survives restart; absent channels recover',sqlite,async t=>{
+ const f=await fixture(t);let deleted=0,captured=0,permissionError=true;
+ const guild=f.client.guilds.cache.get(f.id);guild.members={cache:new Discord.Collection()};
+ const channel={id:f.ticket.id,guild,deletable:true,permissionOverwrites:{cache:new Discord.Collection(),edit:async()=>{if(permissionError)throw Object.assign(new Error('Missing permissions'),{code:50013})}},messages:{fetchPins:async()=>({items:[],hasMore:false})},delete:async()=>{deleted++}};
+ f.client.channels={cache:new Discord.Collection([[f.ticket.id,channel]]),fetch:async()=>channel};
+ f.client.tickets={archiver:{prepareClose:async()=>{captured++;return true},flush:async()=>{}}};
+ await f.prisma.ticket.update({where:{id:f.ticket.id},data:{open:false,closedAt:new Date(),channelDeletePending:true,closeCapturePending:true}});
+ const cleanup=require('../src/lib/ticket-close-channel');await cleanup.finishCloseChannel(f.client,f.ticket.id);
+ let row=await f.full();assert.equal(row.channelDeletePending,true);assert.equal(row.closeCapturePending,true);assert.equal(row.channelDeleteAttempts,1);assert.ok(+row.channelDeleteNextAttemptAt>Date.now());assert.equal(deleted,0);assert.equal(captured,0);
+ permissionError=false;await f.prisma.ticket.update({where:{id:f.ticket.id},data:{channelDeleteNextAttemptAt:null}});
+ await cleanup.finishPendingCloseChannels({...f.client});assert.equal(deleted,1);assert.equal(captured,1);assert.equal((await f.full()).channelDeletePending,false);
+ await f.prisma.ticket.update({where:{id:f.ticket.id},data:{channelDeletePending:true,closeCapturePending:true}});
+ f.client.channels={cache:new Discord.Collection(),fetch:async()=>{throw Object.assign(new Error('Unknown channel'),{code:10003})}};
+ f.client.tickets.archiver.prepareClose=async()=>false;
+ await cleanup.finishPendingCloseChannels({...f.client});assert.equal((await f.full()).channelDeletePending,false);assert.equal((await f.full()).closeCapturePending,false);assert.equal(deleted,1);
+});
+
+test('modern pin pagination preserves all pinned IDs and retains compatibility with older Discord.js',async()=>{
+ const {pinnedIds}=require('../src/lib/ticket-close-channel'),date=new Date();let calls=0;
+ const ids=await pinnedIds({fetchPins:async options=>{calls++;assert.equal(options.limit,50);if(calls===1)return{items:[{message:{id:'1'},pinnedAt:date}],hasMore:true};assert.equal(+options.before,+date);return{items:[{message:{id:'2'},pinnedAt:new Date(+date-1)}],hasMore:false}},fetchPinned:async()=>{throw new Error('Deprecated API called')}});
+ assert.deepEqual(ids,['1','2']);assert.equal(calls,2);assert.deepEqual(await pinnedIds({fetchPinned:async()=>new Discord.Collection([['old',{}]])}),['old']);
+});
+
+test('SQLite: failed final message capture retains the hidden channel and prevents premature HTML/ZIP delivery',sqlite,async t=>{
+ const f=await fixture(t);await f.record();
+ const guild=f.client.guilds.cache.get(f.id);guild.members={cache:new Discord.Collection()};let deleted=0,locked=false;
+ const channel={id:f.ticket.id,guild,deletable:true,permissionOverwrites:{cache:new Discord.Collection(),edit:async()=>{locked=true}},messages:{fetch:async()=>{assert.equal(locked,true);return new Discord.Collection([['last-message',{}]])},fetchPins:async()=>({items:[],hasMore:false})},delete:async()=>{deleted++}};
+ f.client.channels={cache:new Discord.Collection([[f.ticket.id,channel]]),fetch:async()=>channel};
+ const Archiver=load('src/lib/tickets/archiver.js',{'../threads':{pools}}),archiver=new Archiver(f.client);archiver.saveMessage=async()=>false;f.client.tickets={archiver};
+ await f.prisma.ticket.update({where:{id:f.ticket.id},data:{open:false,closedAt:new Date(),channelDeletePending:true,closeCapturePending:true,transcriptPending:true}});
+ await archive.markClosed(f.client,await f.full());await archive.processArchive(f.client,f.ticket.id);await transcripts.deliverTranscript(f.client,f.ticket.id);
+ let ledger=await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}});assert.equal(ledger.state,'collecting');assert.equal(ledger.zipFileId,null);assert.ok(ledger.expiresAt>new Date());assert.equal(f.transcriptMessage.payload,undefined);
+ const cleanup=require('../src/lib/ticket-close-channel');await cleanup.finishCloseChannel(f.client,f.ticket.id);
+ assert.equal(deleted,0);assert.equal(locked,true);assert.equal((await f.full()).closeCapturePending,true);
+ archiver.saveMessage=async()=>[];await f.prisma.ticket.update({where:{id:f.ticket.id},data:{channelDeleteNextAttemptAt:null}});
+ await cleanup.finishPendingCloseChannels({...f.client});await archive.processArchive(f.client,f.ticket.id);
+ assert.equal(deleted,1);assert.equal((await f.full()).closeCapturePending,false);ledger=await f.prisma.driveArchive.findUnique({where:{id:f.ticket.id}});assert.equal(ledger.state,'ready');
 });
 test('SQLite: delete failures persist after database ticket removal; uploads are not exported or restored',sqlite,async t=>{
  const f=await fixture(t);await f.record();await f.close();await f.prisma.ticket.delete({where:{id:f.ticket.id}});
@@ -403,9 +523,10 @@ test('SQLite: manual, confirmed and automatic closure keep HTML/ZIP in the trans
   const guild=f.client.guilds.cache.get(f.id);guild.iconURL=()=>null;guild.members={cache:new Discord.Collection(),fetch:async()=>({})};
   f.client.channels.cache=new Discord.Collection();
   const channel={id:'523456789012345678',guildId:f.id,type:0,guild:{premiumTier:0,members:{me:{}}},permissionsFor:()=>({has:()=>true}),messages:{fetch:async query=>typeof query==='string'?f.transcriptMessage:new Discord.Collection()},send:async payload=>{sends.push(payload);return f.transcriptMessage}};
-  f.client.channels.fetch=async()=>channel;
+  const ticketChannel={id:f.ticket.id,guild,deletable:true,permissionOverwrites:{cache:new Discord.Collection(),edit:async()=>{}},messages:{fetchPins:async()=>({items:[],hasMore:false})},delete:async()=>{}};
+  f.client.channels.fetch=async id=>id===f.ticket.id?ticketChannel:channel;
   const Manager=load('src/lib/tickets/manager.js',{'../threads':{pools},'../stats':{},'./archiver':class {},'../ticket-presentation':{syncTicket:async()=>{},requestSync(){},participantSide:async()=> 'support'},'../logging':{logTicketEvent:async(_,event)=>logs.push(event)},'../transcripts':transcripts});
-  const manager=Object.create(Manager.prototype);manager.client=f.client;manager.$count={categories:{}};manager.archiver={flush:async()=>{}};
+  const manager=Object.create(Manager.prototype);manager.client=f.client;manager.$count={categories:{}};manager.archiver={prepareClose:async()=>true,flush:async()=>{}};
   manager.getTicket=id=>f.prisma.ticket.findUnique({where:{id},include:{guild:true,category:true,feedback:true}});f.client.tickets=manager;
   if(kind==='confirmed'){
    await manager.scheduleClose(await manager.getTicket(f.ticket.id),{id:'request'},f.userId,'Resolved');

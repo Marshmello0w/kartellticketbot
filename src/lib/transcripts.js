@@ -112,12 +112,13 @@ async function deliverTranscript(client, ticketId) {
 			where: { id: ticketId },
 			include: transcriptInclude,
 		});
-		if (!ticket || ticket.open || !ticket.transcriptPending || ticket.transcriptMessageId) return;
+		if (!ticket || ticket.open || ticket.closeCapturePending || !ticket.transcriptPending || ticket.transcriptMessageId) return;
 		const now = new Date();
 		const claim = await client.prisma.ticket.updateMany({
 			where: {
 				id: ticketId,
 				open: false,
+				closeCapturePending: false,
 				transcriptPending: true,
 				transcriptMessageId: null,
 				OR: [{ transcriptNextAttemptAt: null }, { transcriptNextAttemptAt: { lte: now } }],

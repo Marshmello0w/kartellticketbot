@@ -9,6 +9,7 @@
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import ErrorBox from '$components/ErrorBox.svelte';
+	import { driveErrorLabel, driveRetryLabel } from '$lib/drive-status.js';
 	/**
 	 * @typedef {Object} Props
 	 * @property {import('./$types').PageData} data
@@ -59,14 +60,15 @@
 	let loading = $state(false);
 	let drive = $state(null);
 	let driveLoading = $state(false);
-	const driveErrors = { AUTH: 'Google-Anmeldung erneuern', QUOTA: 'Google-Drive-Speicher voll', NOT_CONFIGURED: 'Noch nicht eingerichtet', FOLDER: 'Archivordner nicht erreichbar', NOT_PRIVATE: 'Archivordner ist freigegeben', PERMISSION: 'Berechtigung fehlt', SOURCE: 'Discord-Datei wird erneut abgerufen', MISSING: 'Datei nicht mehr erreichbar', DISK: 'Lokaler Speicher nicht verfügbar', UPLOAD: 'Upload wird wiederholt', RATE_LIMIT: 'Google begrenzt die Anfragen', DELETE: 'Löschung wird wiederholt' };
+	let driveReadError = $state(false);
 	const refreshDrive = async () => {
 		driveLoading = true;
 		try {
 			const response = await fetch(`/api/admin/guilds/${$page.params.guild}/drive`, { credentials: 'include' });
 			if (!response.ok) throw new Error('Status nicht verfügbar');
 			drive = await response.json();
-		} catch { drive = { connected: false, error: 'UPLOAD', pending: 0, archives: [] }; }
+			driveReadError = false;
+		} catch { driveReadError = true; }
 		finally { driveLoading = false; }
 	};
 
@@ -126,19 +128,26 @@
 			<span>HTML und Anhänge privat in Google Drive sichern</span>
 		</label>
 		<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">ZIP herunterladen, entpacken und transcript.html öffnen. Die Dateien werden 90 Tage nach Ticketabschluss gelöscht. Nur du hast direkten Drive-Zugriff.</p>
+		{#if driveReadError}
+			<p class="mt-3 text-sm text-orange-600 dark:text-orange-400">Der Archivstatus konnte nicht geladen werden. Bitte erneut aktualisieren. Eine zuvor geladene Anzeige kann veraltet sein.</p>
+		{/if}
 		{#if drive}
-			<p class="mt-3 text-sm">Verbindung: <strong>{drive.connected ? 'Verbunden' : driveErrors[drive.error] || 'Nicht verbunden'}</strong> · Ausstehende Dateien: {drive.pending}</p>
+			<p class="mt-3 text-sm">Verbindung: <strong>{drive.connected ? 'Verbunden' : drive.error ? driveErrorLabel(drive.error) : 'Nicht verbunden'}</strong> · Ausstehende Dateien: {drive.pending}</p>
 			{#if drive.archives?.length}
 				<ul class="mt-2 space-y-1 text-sm">
 					{#each drive.archives as archive}
-						<li>Ticket #{archive.number}: {archive.state === 'ready' ? archive.complete ? 'Gesichert' : 'Unvollständig gesichert' : archive.state === 'deleting' ? 'Wird gelöscht' : 'Wird archiviert'}{archive.errorCode ? ' · ' + (driveErrors[archive.errorCode] || 'Wiederholung ausstehend') : ''}</li>
+						<li>Ticket #{archive.number}: {archive.state === 'ready' ? archive.complete ? 'Gesichert' : 'Unvollständig gesichert' : archive.state === 'deleting' ? 'Wird gelöscht' : 'Wird archiviert'}{archive.errorCode ? ' · ' + driveErrorLabel(archive.errorCode) + ' (' + archive.errorCode + ')' : ''}
+							{#if archive.errorCode && driveRetryLabel(archive)}<span class="mt-1 block text-xs">{driveRetryLabel(archive)}</span>{/if}
+						</li>
 					{/each}
 				</ul>
 			{/if}
 			{#if drive.failures?.length}
 				<ul class="mt-2 space-y-1 text-sm text-orange-600 dark:text-orange-400">
 					{#each drive.failures as file}
-						<li>Ticket #{file.archive.number} · {file.fileName}: {driveErrors[file.errorCode] || 'Wiederholung ausstehend'}</li>
+						<li>Ticket #{file.archive.number} · {file.fileName}: {driveErrorLabel(file.errorCode)} ({file.errorCode})
+							{#if driveRetryLabel(file)}<span class="mt-1 block text-xs">{driveRetryLabel(file)}</span>{/if}
+						</li>
 					{/each}
 				</ul>
 			{/if}

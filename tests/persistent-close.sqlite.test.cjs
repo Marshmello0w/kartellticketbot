@@ -9,7 +9,7 @@ const url = process.env.TEST_DATABASE_URL;
 function load(file, dependencies) {
  const module = { exports: {} };
  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), {
-  module, require: name => dependencies[name] || {}, Date, setTimeout,
+  module, require: name => dependencies[name] || {}, Date, process, setTimeout,
  });
  return module.exports;
 }

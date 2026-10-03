@@ -34,9 +34,12 @@ test('SQLite: confirmed and automatic close enqueue delivery; failed send surviv
  };
  const guild = { name: 'Support', iconURL: () => null, members: { cache: new discord.Collection(), fetch: async () => ({}) } };
  const client = { prisma: db, i18n, user: { id: 'bot' }, config: { templates: { transcript: 'transcript.md' } }, guilds: { cache: new discord.Collection([[guildId, guild]]) },
-  channels: { cache: new discord.Collection(), fetch: async () => transcriptChannel }, log: { warn() {}, error: error => errors.push(error) },
+  channels: { cache: new discord.Collection(), fetch: async id => {
+   if(id===transcriptChannel.id) return transcriptChannel;
+   return {id,guild,deletable:true,permissionOverwrites:{cache:new discord.Collection(),edit:async()=>{}},messages:{fetchPins:async()=>({items:[],hasMore:false})},delete:async()=>{}};
+  } }, log: { warn() {}, error: error => errors.push(error) },
  };
- const manager = Object.create(Manager.prototype); manager.client = client; manager.$count = { categories: {} }; manager.archiver = { flush: async () => {} };
+ const manager = Object.create(Manager.prototype); manager.client = client; manager.$count = { categories: {} }; manager.archiver = { prepareClose:async()=>true,flush: async () => {} };
  manager.getTicket = id => client.prisma.ticket.findUnique({ where: { id }, include: { guild: true, category: true, feedback: true } });
  client.tickets = manager;
  try {

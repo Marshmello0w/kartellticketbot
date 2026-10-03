@@ -158,6 +158,21 @@ module.exports = class extends Listener {
 		const archiveTick = startup => tick(client, startup).catch(() => client.log.warn('Drive archive worker could not complete its check'));
 		archiveTick(true);
 		setInterval(() => archiveTick(false), 30000);
+		const { finishPendingCloseChannels } = require('../../lib/ticket-close-channel');
+		let finishingChannels = false;
+		const finishChannels = async () => {
+			if (finishingChannels) return;
+			finishingChannels = true;
+			try {
+				await finishPendingCloseChannels(client);
+			} catch {
+				client.log.warn('Pending ticket channel cleanup could not complete its check');
+			} finally {
+				finishingChannels = false;
+			}
+		};
+		finishChannels();
+		setInterval(finishChannels, 30000);
 
 		if (process.env.PUBLIC_BOT === 'true') {
 			client.log.notice('Inactivity warnings and auto-close features are disabled');

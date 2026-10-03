@@ -247,6 +247,10 @@ model Tag {
 }
 
 model Ticket {
+    channelDeletePending Boolean @default(false)
+    closeCapturePending Boolean @default(false)
+    channelDeleteAttempts Int @default(0)
+    channelDeleteNextAttemptAt DateTime?
     channelBaseName String?
     lastParticipantSide String?
     lastParticipantAt DateTime?
@@ -300,6 +304,7 @@ model Ticket {
     questionAnswers     QuestionAnswer[]
 
     @@unique([guildId, number])
+    @@index([channelDeletePending, channelDeleteNextAttemptAt])
     @@map("tickets")
 }
 

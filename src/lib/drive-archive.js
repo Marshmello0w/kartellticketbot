@@ -40,7 +40,7 @@ const assetSlot = concurrencyLimit(2);
 const sourceSlot = concurrencyLimit(2);
 const delay = attempts => attempts === 1 ? 60000 : attempts === 2 ? 300000 : 900000;
 const hash = value => createHash('sha256').update(value).digest('hex');
-const codes = new Set(['AUTH', 'QUOTA', 'PERMISSION', 'RATE_LIMIT', 'UPLOAD', 'DOWNLOAD', 'SOURCE', 'MISSING', 'FOLDER', 'NOT_PRIVATE', 'NOT_CONFIGURED', 'SESSION_EXPIRED', 'FILE_CONFLICT', 'DELETE', 'DELETE_REFUSED', 'UNSAFE_URL', 'EXPIRED', 'DISK', 'TICKET_REMOVED']);
+const codes = new Set(['AUTH', 'QUOTA', 'PERMISSION', 'RATE_LIMIT', 'UPLOAD', 'DOWNLOAD', 'SIZE_MISMATCH', 'DOWNLOAD_LIMIT', 'SOURCE', 'MISSING', 'FOLDER', 'NOT_PRIVATE', 'NOT_CONFIGURED', 'SESSION_EXPIRED', 'FILE_CONFLICT', 'DELETE', 'DELETE_REFUSED', 'UNSAFE_URL', 'EXPIRED', 'DISK', 'TICKET_REMOVED']);
 const codeOf = error => codes.has(error?.code) ? error.code : ['ENOSPC', 'EACCES', 'EPERM'].includes(error?.code) ? 'DISK' : 'UPLOAD';
 const filename = value => {
 	// eslint-disable-next-line no-control-regex -- Reject control characters in file names.
@@ -71,6 +71,16 @@ function sourceUrl(value) {
 		return null;
 	}
 }
+function originalSourceUrl(value) {
+	const allowed = sourceUrl(value);
+	if (!allowed) return null;
+	const url = new URL(allowed);
+	if (url.pathname.startsWith('/attachments/')) {
+		url.hostname = 'cdn.discordapp.com';
+		for (const parameter of ['width', 'height', 'format', 'quality', 'size']) url.searchParams.delete(parameter);
+	}
+	return url.href;
+}
 async function ensureArchive(client, ticket) {
 	if (!client.prisma.driveArchive || !ticket.guild?.driveArchiveEnabled || !ticket.guild.archive || process.env.OVERRIDE_ARCHIVE === 'false') return null;
 	let archive = await client.prisma.driveArchive.findUnique({ where: { id: ticket.id } });
@@ -95,7 +105,7 @@ function contentAssets(content, messageId) {
 	const assets = (content.attachments || []).filter(a => a.id && sourceUrl(a.url)).map(a => ({
 		key: 'attachment:' + a.id,
 		isAttachment: true,
-		url: a.url,
+		url: originalSourceUrl(a.url),
 		messageId,
 		name: a.name || a.filename || 'file',
 		mime: a.contentType || a.content_type || 'application/octet-stream',
@@ -114,10 +124,11 @@ function contentAssets(content, messageId) {
 	const text = [content.content, ...(content.embeds || []).flatMap(original => {
 		const e = original.data || original;
 		for (const url of [e.image?.url, e.thumbnail?.url, e.author?.icon_url, e.footer?.icon_url]) {
-			if (sourceUrl(url) && !assets.some(a => a.url === url)) {
+			// A preview of an attachment must not replace its original file URL.
+			if (sourceUrl(url) && !assets.some(a => a.key === discordAssetKey(url))) {
 				assets.push({
 					key: discordAssetKey(url),
-					url,
+					url: originalSourceUrl(url),
 					messageId,
 					name: 'embed.png',
 					mime: 'image/png',
@@ -160,11 +171,18 @@ async function captureContent(client, ticket, content, messageId) {
 		const id = hash(ticket.id + ':' + input.key);
 		const name = filename(input.name);
 		const existing = await client.prisma.driveAsset.findUnique({ where: { id } });
+		// Other messages can embed the same attachment: retain its original source and metadata.
+		if (existing?.assetKey.startsWith('attachment:') && existing.size > 0 && !input.isAttachment) continue;
 		const refreshed = existing?.state === 'missing' && decrypt(existing.sourceUrl) !== input.url;
 		const row = await client.prisma.driveAsset.upsert({
 			where: { id },
 			update: {
 				sourceUrl: encrypt(input.url),
+				...(input.isAttachment && !existing?.localReady && existing?.state !== 'ready' ? {
+					size: input.size || 0,
+					mime: input.mime,
+					fileName: name,
+				} : {}),
 				...(refreshed ? {
 					state: 'pending',
 					errorCode: null,
@@ -191,21 +209,41 @@ async function captureContent(client, ticket, content, messageId) {
 async function markClosed(client, ticket) {
 	const archive = await client.prisma.driveArchive?.findUnique({ where: { id: ticket.id } });
 	if (!archive || ['deleting', 'deleted'].includes(archive.state)) return;
-	await client.prisma.driveArchive.update({
-		where: { id: ticket.id },
-		data: {
-			closedAt: ticket.closedAt,
-			expiresAt: new Date(ticket.closedAt.getTime() + RETENTION),
-			transcriptChannelId: ticket.guild.transcriptChannel,
-			nextAttemptAt: null,
-		},
-	});
+	if (!archive.closedAt) {
+		await client.prisma.driveArchive.update({
+			where: { id: ticket.id },
+			data: {
+				closedAt: ticket.closedAt,
+				expiresAt: new Date(ticket.closedAt.getTime() + RETENTION),
+				transcriptChannelId: ticket.guild.transcriptChannel,
+				nextAttemptAt: null,
+			},
+		});
+	}
 	processArchive(client, ticket.id).catch(() => client.log.warn('Drive archive completion pending for ticket %s', ticket.id));
 }
 async function downloadSource(client, asset, target) {
 	const archiveId = asset.archiveId;
-	let url = sourceUrl(decrypt(asset.sourceUrl));
+	let url = originalSourceUrl(decrypt(asset.sourceUrl));
 	if (!url) throw new DriveError('UNSAFE_URL');
+	// Repair existing tasks using the original attachment in the archived message.
+	if (asset.assetKey.startsWith('attachment:') && asset.messageId && ['DOWNLOAD', 'SIZE_MISMATCH'].includes(asset.errorCode)) {
+		const message = await client.prisma.archivedMessage.findUnique({
+			where: { id: asset.messageId },
+			select: { content: true },
+		});
+		if (message) {
+			const content = JSON.parse(decrypt(message.content));
+			const attachment = content.attachments?.find(item => 'attachment:' + item.id === asset.assetKey);
+			url = originalSourceUrl(attachment?.url) || url;
+		}
+	}
+	if (url !== decrypt(asset.sourceUrl)) {
+		await client.prisma.driveAsset.update({
+			where: { id: asset.id },
+			data: { sourceUrl: encrypt(url) },
+		});
+	}
 	let response;
 	for (let attempt = 0; attempt < 2; attempt++) {
 		response = await (client.archiveFetch || fetch)(url, {
@@ -216,10 +254,14 @@ async function downloadSource(client, asset, target) {
 		if (!attempt && asset.assetKey.startsWith('attachment:') && asset.messageId) {
 			try {
 				const channel = await client.channels.fetch(archiveId);
-				const message = await channel.messages.fetch(asset.messageId);
+				const message = await channel.messages.fetch({
+					message: asset.messageId,
+					force: true,
+					cache: false,
+				});
 				const attachment = message.attachments.get(asset.assetKey.slice(11));
 				if (!attachment || !sourceUrl(attachment.url)) throw new DriveError('MISSING');
-				url = attachment.url;
+				url = originalSourceUrl(attachment.url);
 				await client.prisma.driveAsset.update({
 					where: { id: asset.id },
 					data: { sourceUrl: encrypt(url) },
@@ -240,13 +282,13 @@ async function downloadSource(client, asset, target) {
 	const counter = new Transform({
 		transform(chunk, encoding, done) {
 			bytes += chunk.length;
-			done(bytes > maximum ? new DriveError('DOWNLOAD') : null, chunk);
+			done(bytes > maximum ? new DriveError(asset.size > 0 ? 'SIZE_MISMATCH' : 'DOWNLOAD_LIMIT') : null, chunk);
 		},
 	});
 	const temporary = target + '.part';
 	try {
 		await pipeline(Readable.fromWeb(response.body), counter, fs.createWriteStream(temporary, { mode: 0o600 }));
-		if (asset.assetKey.startsWith('attachment:') && asset.size && bytes !== asset.size) throw new DriveError('DOWNLOAD');
+		if (asset.assetKey.startsWith('attachment:') && asset.size && bytes !== asset.size) throw new DriveError('SIZE_MISMATCH');
 		await fs.promises.rename(temporary, target);
 	} catch (error) {
 		await fs.promises.unlink(temporary).catch(() => {});
@@ -304,17 +346,18 @@ async function stageAssetNow(client, id) {
 		return true;
 	} catch (error) {
 		const attempts = asset.attempts + 1;
-		const code = codeOf(error);
+		const code = codeOf(error) === 'UPLOAD' ? 'SOURCE' : codeOf(error);
+		const unavailable = code === 'MISSING' || code === 'UNSAFE_URL' || ['SIZE_MISMATCH', 'DOWNLOAD_LIMIT'].includes(code) && attempts >= 3;
 		await client.prisma.driveAsset.update({
 			where: { id },
 			data: {
-				state: code === 'MISSING' || code === 'UNSAFE_URL' ? 'missing' : 'pending',
+				state: unavailable ? 'missing' : 'pending',
 				errorCode: code,
 				attempts,
-				nextAttemptAt: code === 'MISSING' || code === 'UNSAFE_URL' ? null : new Date(Date.now() + Math.max(delay(attempts), error.retryAfter || 0)),
+				nextAttemptAt: unavailable ? null : new Date(Date.now() + Math.max(delay(attempts), error.retryAfter || 0)),
 			},
 		});
-		client.log.warn('Drive attachment %s: %s', id, code);
+		client.log.warn('Drive attachment %s (ticket #%d, %s): %s; attempts: %d', id, asset.archive.number, asset.fileName, code, attempts);
 		return false;
 	} finally {
 		await client.prisma.driveAsset.update({
@@ -563,6 +606,7 @@ async function processArchiveNow(client, id) {
 			});
 			return await purgeArchive(client, archive);
 		}
+		if (ticket.closeCapturePending) return;
 		const drive = getDrive(client);
 		await drive.validateRoot();
 		if (archive.state !== 'ready') {
@@ -1021,6 +1065,8 @@ async function driveStatus(client, guildId) {
 				number: true,
 				state: true,
 				errorCode: true,
+				attempts: true,
+				nextAttemptAt: true,
 				expiresAt: true,
 				complete: true,
 			},
@@ -1036,6 +1082,9 @@ async function driveStatus(client, guildId) {
 			select: {
 				fileName: true,
 				errorCode: true,
+				state: true,
+				attempts: true,
+				nextAttemptAt: true,
 				archive: { select: { number: true } },
 			},
 			orderBy: { createdAt: 'desc' },
@@ -1062,6 +1111,7 @@ module.exports = {
 	ensureArchive,
 	filename,
 	markClosed,
+	originalSourceUrl,
 	processArchive,
 	processAsset,
 	sourceUrl,

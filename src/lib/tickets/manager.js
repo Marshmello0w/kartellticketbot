@@ -1117,18 +1117,15 @@ module.exports = class TicketManager {
 	}) {
 		let ticket = await this.getTicket(ticketId, true);
 		if (!ticket || !ticket.open) return;
-		if (ticket.guild.driveArchiveEnabled) await require('../drive-archive').ensureArchive(this.client, ticket).catch(() => this.client.log.warn('Drive archive registration failed for ticket %s', ticketId));
+		if (ticket.guild.driveArchiveEnabled) await require('../drive-archive').ensureArchive(this.client, ticket);
 		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
-
-		await this.archiver?.prepareClose?.(ticketId);
-		await this.archiver?.flush(ticketId);
-		const { _count: { archivedMessages } } = await this.client.prisma.ticket.findUnique({
-			select: { _count: { select: { archivedMessages: true } } },
-			where: { id: ticket.id },
-		});
 
 		/** @type {import("@prisma/client").Ticket} */
 		const data = {
+			channelDeletePending: true,
+			closeCapturePending: Boolean(ticket.guild.archive && process.env.OVERRIDE_ARCHIVE !== 'false'),
+			channelDeleteAttempts: 0,
+			channelDeleteNextAttemptAt: null,
 			closeRequestedAt: null,
 			closeScheduledAt: null,
 			closeRequestedById: null,
@@ -1139,16 +1136,8 @@ module.exports = class TicketManager {
 			closedAt: new Date(),
 			closedById: closedBy,
 			closedReason: reason && await crypto.queue(w => w.encrypt(reason)),
-			messageCount: archivedMessages,
 			open: false,
 		};
-
-		/** @type {import("discord.js").TextChannel} */
-		const channel = this.client.channels.cache.get(ticketId);
-		if (channel) {
-			const pinned = await channel.messages.fetchPinned();
-			data.pinnedMessageIds = [...pinned.keys()];
-		}
 
 		try {
 			if (closedBy) {
@@ -1186,12 +1175,16 @@ module.exports = class TicketManager {
 
 		if (this.client.prisma.driveArchive) await require('../drive-archive').markClosed(this.client, ticket).catch(() => this.client.log.warn('Drive archive close registration failed for ticket %s', ticketId));
 		syncTicket(this.client, ticket.id).catch(this.client.log.error);
+		await require('../ticket-close-channel').finishCloseChannel(this.client, ticket.id);
+		ticket = await this.client.prisma.ticket.findUnique({
+			where: { id: ticket.id },
+			include: {
+				guild: true,
+				category: true,
+				feedback: true,
+			},
+		});
 		const guild = this.client.guilds.cache.get(ticket.guildId);
-
-		if (channel?.deletable) {
-			const member = closedBy ? channel.guild.members.cache.get(closedBy) : null;
-			await channel.delete('Ticket closed' + (member ? ` by ${member.displayName}` : '') + (reason ? `: ${reason}` : '')).catch(this.client.log.error);
-		}
 
 		const components = [];
 

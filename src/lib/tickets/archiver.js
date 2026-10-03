@@ -42,12 +42,13 @@ module.exports = class TicketArchiver {
 	}
 
 	async prepareClose(ticketId) {
-		if (process.env.OVERRIDE_ARCHIVE === 'false') return;
+		if (process.env.OVERRIDE_ARCHIVE === 'false') return true;
 		const ticket = await this.client.prisma.ticket.findUnique({
 			where: { id: ticketId },
 			include: { guild: true },
 		});
-		if (!ticket?.guild.archive) return;
+		if (!ticket?.guild.archive) return true;
+		let captured = true;
 		try {
 			const channel = this.client.channels.cache.get(ticketId) || await this.client.channels.fetch(ticketId);
 			if (channel?.id === ticketId) {
@@ -58,22 +59,27 @@ module.exports = class TicketArchiver {
 						...(before ? { before } : {}),
 						cache: false,
 					});
-					for (const message of messages.values()) await this.saveMessage(ticketId, message);
+					for (const message of messages.values()) if (await this.saveMessage(ticketId, message) === false) captured = false;
 					if (messages.size < 100) break;
 					const next = messages.last().id;
 					if (next === before) break;
 					before = next;
 				}
+			} else {
+				captured = false;
 			}
 		} catch (error) {
+			captured = false;
 			this.client.log.warn('Ticket %s: final message sync failed (%s)', ticketId, error.code || error.name);
 		}
 		await this.flush(ticketId);
 		if (ticket.guild.driveArchiveEnabled) {
 			await stageTicketAssets(this.client, ticketId).catch(error => {
+				captured = false;
 				this.client.log.warn('Ticket %s: final attachment backup failed (%s)', ticketId, error.code || error.name);
 			});
 		}
+		return captured;
 	}
 
 	async saveMessageNow(ticketId, message, external = false) {
@@ -230,7 +236,12 @@ module.exports = class TicketArchiver {
 					where: { id: ticketId },
 					include: { guild: true },
 				});
-				if (ticket) await captureContent(this.client, ticket, content, message.id).catch(() => this.client.log.warn('Drive attachment registration failed for ticket %s', ticketId));
+				if (ticket) {
+					await captureContent(this.client, ticket, content, message.id).catch(error => {
+						this.client.log.warn('Drive attachment registration failed for ticket %s', ticketId);
+						if (ticket.closeCapturePending) throw error;
+					});
+				}
 			}
 			return result;
 		} catch (error) {
