@@ -205,7 +205,7 @@
 			<p class="mt-1 text-sm text-gray-500 dark:text-slate-400">Für deinen deutschen Support Deutsch wählen, für englischen Support Englisch. Automatisch verwendet die erste Nachricht beziehungsweise das bei der Erstellung eingegebene Thema. Die Sprache bleibt danach für das Ticket gespeichert.</p>
 			<label for="ai-category-knowledge" class="mt-4 block font-medium">Eigene FAQ und Regeln</label>
 			<textarea id="ai-category-knowledge" class="input form-textarea mt-2 min-h-40 font-normal" bind:value={category.aiKnowledge} maxlength="12000" placeholder="Leer lassen, um das Supportwissen aus den Servereinstellungen zu verwenden."></textarea>
-			<p class="mt-1 text-sm text-gray-500 dark:text-slate-400">Eigene Kategorie-FAQ ersetzen das manuelle Serverwissen. Freigegebene FAQ aus Tickets ergänzen es. Schaltflächen und Hinweise änderst du weiterhin im Bereich „Texte“.</p>
+			<p class="mt-1 text-sm text-gray-500 dark:text-slate-400">Eigene Kategorie-FAQ ersetzen das manuelle Serverwissen. Freigegebene FAQ aus Tickets ergänzen es unabhängig von ihrer Sprache; die KI antwortet in der festgelegten Ticketsprache. Schaltflächen und Hinweise änderst du weiterhin im Bereich „Texte“.</p>
 		</section>
 		<div class="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-12">
 			<div class="grid grid-cols-1 gap-8">

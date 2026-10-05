@@ -47,16 +47,16 @@ test('local FAQ retrieval ranks relevant answers, honors category overrides and 
  assert.ok(Search.select([{ question: 'Grenade launcher kick', answer: 'The weapon is restricted.', language: 'en', categoryId: null }], 'Granatwerfer', 12).length);
 });
 
-test('SQLite: FAQ input excludes wrong language, guild, category and unapproved drafts', sqlite, async t => {
+test('SQLite: FAQ input uses all source languages, excluding other guilds/categories and unapproved drafts', sqlite, async t => {
  const f = await fixture(t);
  const create = (id, data) => f.db.faqEntry.create({ data: { id: f.guildId + id, guildId: f.guildId, categoryId: null, categoryName: 'Test', sourceTicketId: 'source', sourceTicketNumber: 1, jobId: 'test', status: 'approved', language: 'de', question: 'Was kostet VIP?', answer: 'VIP kostet 4,99 Euro', evidence: '[]', ...data } });
- await create('de', {}); await create('en', { language: 'en', question: 'What does VIP cost?', answer: 'ENGLISH_PRIVATE' });
+ await create('de', {}); await create('en', { language: 'en', question: 'What does VIP cost?', answer: 'APPROVED_ENGLISH_KNOWLEDGE' });
  await create('draft', { status: 'draft', question: 'VIP draft', answer: 'DRAFT_PRIVATE' });
  await create('other-category', { categoryId: f.en.id, question: 'VIP other category', answer: 'CATEGORY_PRIVATE' });
  const otherGuild = f.guildId + 'foreign'; await f.db.guild.create({ data: { id: otherGuild } }); t.after(async () => { const db = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } }); try { await db.guild.delete({ where: { id: otherGuild } }); } finally { await db.$disconnect(); } });
  await create('foreign', { guildId: otherGuild, question: 'VIP other guild', answer: 'GUILD_PRIVATE' });
  const knowledge = await F.getKnowledge(f.db, { guildId: f.guildId, categoryId: f.de.id }, { language: 'de', question: 'VIP Preis?' });
- assert.ok(knowledge.includes('4,99')); for (const sentinel of ['ENGLISH_PRIVATE','DRAFT_PRIVATE','CATEGORY_PRIVATE','GUILD_PRIVATE']) assert.ok(!knowledge.includes(sentinel));
+ assert.ok(knowledge.includes('4,99')); assert.ok(knowledge.includes('APPROVED_ENGLISH_KNOWLEDGE')); for (const sentinel of ['DRAFT_PRIVATE','CATEGORY_PRIVATE','GUILD_PRIVATE']) assert.ok(!knowledge.includes(sentinel));
  assert.equal(await F.getKnowledge(f.db, { guildId: f.guildId, categoryId: f.de.id }, { language: 'de', question: 'Unbekanntes XYZZY' }), '');
 });
 

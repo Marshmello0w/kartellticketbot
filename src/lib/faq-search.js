@@ -5,7 +5,7 @@ const STOP = new Set(('a an and are as at be been but by can could did do does f
 const GROUPS = [
 	['granatwerfer', 'granatenwerfer', 'grenade', 'launcher'],
 	['heli', 'helikopter', 'helicopter'],
-	['fahrzeug', 'fahrzeuge', 'vehicle', 'vehicles', 'humvee'],
+	['fahrzeug', 'fahrzeuge', 'vehicle', 'vehicles', 'humvee', 'humvees', 'humvey', 'hamvey'],
 	['infanterie', 'infantry'],
 	['vip', 'slot', 'slots', 'reserved'],
 	['warteschlange', 'queue', 'priority', 'vorrang'],
@@ -20,6 +20,12 @@ const GROUPS = [
 	['beweis', 'beweise', 'evidence', 'proof', 'clip', 'clips'],
 	['absturz', 'absturze', 'crash', 'crashes'],
 	['rassismus', 'racism', 'racist'],
+	['regel', 'regeln', 'rule', 'rules', 'policy', 'policies'],
+	['support', 'supporter', 'hilfe', 'help'],
+	['erreichbar', 'offnungszeiten', 'zeiten', 'hours', 'available', 'availability'],
+	['beitreten', 'finden', 'join', 'find'],
+	['deaktivieren', 'deaktiviert', 'entfernen', 'remove', 'removed', 'disable', 'disabled'],
+	['erlaubt', 'zulassig', 'allowed', 'permitted'],
 ];
 
 function words(text) {
@@ -34,7 +40,7 @@ function words(text) {
 	return result;
 }
 
-function select(entries, question, categoryId) {
+function select(entries, question, categoryId, responseLanguage) {
 	const query = words(question);
 	if (!query.size) return [];
 	// Same-question category overrides win over server defaults.
@@ -59,13 +65,15 @@ function select(entries, question, categoryId) {
 			doc.score += weight * (doc.question.has(word) ? 3 : doc.answer.has(word) ? 1 : 0);
 		}
 	}
-	return documents.filter(doc => doc.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_ENTRIES).map(doc => doc.entry);
+	// Knowledge is usable in any source language. Prefer an existing translation
+	// only when relevance is equal; never drop relevant facts in another language.
+	return documents.filter(doc => doc.score > 0).sort((a, b) => b.score - a.score || Number(b.entry.language === responseLanguage) - Number(a.entry.language === responseLanguage)).slice(0, MAX_ENTRIES).map(doc => doc.entry);
 }
 
 function format(entries) {
 	let text = '';
 	for (const entry of entries) {
-		const item = '\nFAQ: ' + entry.question + '\n' + entry.answer + '\n';
+		const item = '\nFAQ (' + entry.language + '): ' + entry.question + '\n' + entry.answer + '\n';
 		if (Buffer.byteLength(text + item, 'utf8') > MAX_BYTES) continue;
 		text += item;
 	}

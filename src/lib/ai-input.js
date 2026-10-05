@@ -1,21 +1,37 @@
 const { detectAll } = require('tinyld');
 
-function language(text, fallback = 'de') {
+const EN_WORDS = new Set('i you your we our my is are am why what how when where much many can could would should do does did please need help have not'.split(' '));
+const DE_WORDS = new Set('ich du ihr euch eure wir unser ist sind warum was wie wann wo kann kannst können könnt könnte bitte brauche brauchen habe haben nicht'.split(' '));
+const EN_CLEAR = new Set('banned allowed forbidden removed disabled thanks hello'.split(' '));
+const DE_CLEAR = new Set('gebannt erlaubt verboten entfernt deaktiviert danke hallo'.split(' '));
+
+function detectedLanguage(text) {
 	const plain = String(text || '')
 		.replace(/https?:\/\/\S+|<[@#][!&]?\d+>|\b\d{10,}\b/g, '')
 		.slice(0, 3000);
-	const fallbackLanguage = /^[a-z]{2,3}$/.test(fallback) ? fallback : 'de';
 	// Short greetings and emoticons have too little evidence for statistical
 	// detection (for example, "uwu" was incorrectly classified as Kirundi).
 	if (isGreeting(plain)) {
 		if (/^(?:hello|good\s+)/i.test(plain.trim())) return 'en';
 		if (/^(?:hallo|huhu|moin|servus|guten\s+)/i.test(plain.trim())) return 'de';
-		return fallbackLanguage;
+		return null;
 	}
 	const candidates = detectAll(plain);
 	const first = candidates[0], second = candidates[1];
 	if (first?.accuracy >= 0.4 && first.accuracy - (second?.accuracy || 0) >= 0.15) return first.lang;
-	return fallbackLanguage;
+	// N-gram scores are often very low for short support questions and game
+	// names/typos. Use distinct DE/EN grammar and words, without treating neutral
+	// keywords such as "VIP", "server" or "Humvee" as language evidence.
+	const words = new Set(plain.toLowerCase().match(/[\p{L}]+/gu) || []);
+	const score = (markers, clear) => [...words].reduce((sum, word) => sum + (clear.has(word) ? 2 : markers.has(word) ? 1 : 0), 0);
+	const en = score(EN_WORDS, EN_CLEAR), de = score(DE_WORDS, DE_CLEAR);
+	if (en >= 2 && en - de >= 2) return 'en';
+	if (de >= 2 && de - en >= 2) return 'de';
+	return null;
+}
+
+function language(text, fallback = 'de') {
+	return detectedLanguage(text) || (/^[a-z]{2,3}$/.test(fallback) ? fallback : 'de');
 }
 
 function supportLanguage(context) {
@@ -39,6 +55,7 @@ function isGreeting(text) {
 }
 
 module.exports = {
+	detectedLanguage,
 	language,
 	supportLanguage,
 	supportQuestion,

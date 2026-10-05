@@ -174,7 +174,10 @@ test('FAQ archive fallback works after force close/channel deletion; long chats 
 test('FAQ collection/generation are leased, failures survive restart and no uncertain generation is repeated', sqlite, async t => {
  const f = await setup(t), item = await f.create(); f.message(item, f.ids.creator, 'Question'); const staff = f.message(item, f.ids.staff, 'Answer');
  const original = await F.start(f.client, await f.ticket(item), f.ids.staff, 'same-' + item.ticket.id); const duplicate = await F.start(f.client, await f.ticket(item), f.ids.admin, 'other-' + item.ticket.id); assert.equal(duplicate.id, original.id);
- let count = 0; await Promise.all([F.processJob(f.client, original, async () => { count++; return { action: 'answer', entries: [proposal(staff.id)] }; }), F.processJob(f.client, original, async () => assert.fail('Duplicate generation'))]); assert.equal(count, 1);
+ // Either caller may win the database lease; assert one generation regardless
+ // of which concurrent invocation is scheduled first by Prisma.
+ let count = 0; const generate = async () => { count++; return { action: 'answer', entries: [proposal(staff.id)] }; };
+ await Promise.all([F.processJob(f.client, original, generate), F.processJob(f.client, original, generate)]); assert.equal(count, 1);
  const uncertain = await F.start(f.client, await f.ticket(item), f.ids.staff, 'crash-' + item.ticket.id); await f.db.faqJob.update({ where: { id: uncertain.id }, data: { state: 'processing', leaseUntil: new Date(Date.now() - 1) } }); await F.tick(f.client); assert.equal((await f.db.faqJob.findUnique({ where: { id: uncertain.id } })).errorCode, 'RESTART');
  const failure = await f.run(item, async () => ({ action: 'human', reason: 'BUDGET' })); assert.equal(failure.errorCode, 'BUDGET'); assert.equal(failure.ticketKey, null);
  const restarted = new PrismaClient({ datasources: { db: { url: process.env.TEST_DATABASE_URL } } }); try { assert.equal((await restarted.faqJob.findUnique({ where: { id: failure.id } })).state, 'failed'); } finally { await restarted.$disconnect(); }

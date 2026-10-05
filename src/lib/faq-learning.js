@@ -334,7 +334,6 @@ async function getKnowledge(db, ticket, lookup = null) {
 		where: {
 			guildId: ticket.guildId,
 			status: 'approved',
-			...(lookup ? { language: lookup.language } : {}),
 			OR: [{ categoryId: null }, { categoryId: ticket.categoryId }],
 		},
 		orderBy: { updatedAt: 'desc' },
@@ -342,7 +341,7 @@ async function getKnowledge(db, ticket, lookup = null) {
 	});
 	if (lookup) {
 		const search = require('./faq-search');
-		return search.format(search.select(entries, lookup.question, ticket.categoryId));
+		return search.format(search.select(entries, lookup.question, ticket.categoryId, lookup.language));
 	}
 	let text = '';
 	for (const entry of entries) {

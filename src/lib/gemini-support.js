@@ -69,7 +69,8 @@ async function budget(db, config, now = new Date()) {
 	});
 }
 function bodyFor(knowledge, conversation) {
-	const language = 'Always answer only in language code ' + Input.supportLanguage(conversation) + '. Never change it to match the current question.';
+	const responseLanguage = Input.supportLanguage(conversation);
+	const language = 'Always answer only in language code ' + responseLanguage + '. Never change it to match the current question or the knowledge. The knowledge and FAQ entries may be in any language; translate their facts into the response language. Do not copy source-language wording. The JSON language field must match the actual answer text.';
 	const body = {
 		systemInstruction: { parts: [{ text: SYSTEM + '\nRESPONSE LANGUAGE: ' + language + '\nADMINISTRATOR KNOWLEDGE:\n' + knowledge }] },
 		contents: [{
@@ -88,7 +89,10 @@ function bodyFor(knowledge, conversation) {
 						enum: ['answer', 'human'],
 					},
 					text: { type: 'STRING' },
-					language: { type: 'STRING' },
+					language: {
+						type: 'STRING',
+						enum: [responseLanguage],
+					},
 				},
 				required: ['action', 'text', 'language'],
 			},
@@ -379,6 +383,12 @@ function answer(data, expectedLanguage) {
 	if (!value || !['answer', 'human'].includes(value.action) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 1600) return fail('MODEL_INVALID_RESPONSE');
 	if (!validLanguage(value.language) || expectedLanguage && value.language !== expectedLanguage) return fail('MODEL_LANGUAGE');
 	if (value.action === 'human') return fail('MODEL_HANDOFF');
+	// The model can label German text "en" (or vice versa). Reject confidently
+	// detected mismatches as well, without another generation/translation request.
+	// Quotes, code and links do not determine the surrounding answer's language.
+	const prose = value.text.replace(/```[\s\S]*?```|`[^`]*`|^\s*>.*$/gm, '');
+	const textLanguage = Input.detectedLanguage(prose);
+	if (expectedLanguage && textLanguage && textLanguage !== expectedLanguage) return fail('MODEL_LANGUAGE');
 	return {
 		action: 'answer',
 		text: value.text,
