@@ -42,6 +42,7 @@
 	const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 	const expanded = $state({ workingHours: false });
 
+	const discordCategories = channels.filter((c) => c.type === 4);
 	channels = channels.filter((c) => c.type === 0); // text
 	roles = roles.filter((r) => r.name !== '@everyone').sort((a, b) => b.rawPosition - a.rawPosition);
 	roles.forEach((r) => {
@@ -52,6 +53,7 @@
 	settings.logChannel = settings.logChannel ?? '';
 	settings.transcriptChannel = settings.transcriptChannel ?? '';
 	settings.ticketOverviewChannel = settings.ticketOverviewChannel ?? '';
+	settings.closedTicketCategory = settings.closedTicketCategory ?? '';
 	settings.automaticTicketStatus = settings.automaticTicketStatus ?? true;
 	settings.aiSupportEnabled = settings.aiSupportEnabled ?? false;
 	settings.aiKnowledge = settings.aiKnowledge ?? '';
@@ -89,6 +91,7 @@
 			if (settings.logChannel === '') json.logChannel = null;
 			if (settings.transcriptChannel === '') json.transcriptChannel = null;
 			if (settings.ticketOverviewChannel === '') json.ticketOverviewChannel = null;
+			if (settings.closedTicketCategory === '') json.closedTicketCategory = null;
 			delete json.textOverrides;
 			json.workingHours = settings.workingHours.map((v) => (v.length === 0 ? null : v));
 
@@ -363,6 +366,14 @@
 					{#each channels as channel}<option value={channel.id}>#{channel.name}</option>{/each}
 				</select>
 				<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Ein interner Kanal für beide Support-Kategorien. Pro offenem Ticket gibt es einen Eintrag, der beim Schließen gelöscht wird. Wähle einen anderen Kanal als Log und Transkript.</p>
+			</div>
+			<div>
+				<label for="closed-ticket-category" class="font-medium">Kategorie für geschlossene Tickets</label>
+				<select id="closed-ticket-category" class="input form-select block font-normal" bind:value={settings.closedTicketCategory}>
+					<option value="">In bisheriger Kategorie behalten</option>
+					{#each discordCategories as category}<option value={category.id}>{category.name}</option>{/each}
+				</select>
+				<p class="mt-2 text-sm text-gray-500 dark:text-slate-400">Beim Schließen wird der Kanal in diese Discord-Kategorie verschoben und mit seiner Ticketnummer umbenannt, zum Beispiel closed-27. Die bisherigen Ticketrechte bleiben erhalten. Das Team kann bis „Delete“ weiterarbeiten.</p>
 			</div>
 			<div>
 				<label for="automatic-ticket-status" class="flex items-center gap-2 font-medium"><input id="automatic-ticket-status" type="checkbox" class="form-checkbox" bind:checked={settings.automaticTicketStatus} />Automatischer Antwortstatus</label>

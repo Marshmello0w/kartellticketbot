@@ -1,4 +1,5 @@
 const { validateTranscriptChannel } = require('../../../../../lib/transcripts');
+const { validateClosedTicketCategory } = require('../../../../../lib/ticket-close-channel');
 const {
 	validateOverviewChannel, requestSync,
 } = require('../../../../../lib/ticket-presentation');
@@ -24,6 +25,7 @@ module.exports.patch = fastify => ({
 		require('../../../../../lib/ai-support').validateSettings(data);
 		if (data.transcriptChannel === '') data.transcriptChannel = null;
 		if (data.ticketOverviewChannel === '') data.ticketOverviewChannel = null;
+		if (data.closedTicketCategory === '') data.closedTicketCategory = null;
 		if (Object.hasOwn(data, 'automaticTicketStatus') && typeof data.automaticTicketStatus !== 'boolean') throw Object.assign(new Error('Ungültiger Antwortstatus-Schalter.'), { statusCode: 400 });
 		delete data.textOverrides;
 		if (Object.prototype.hasOwnProperty.call(data, 'id')) delete data.id;
@@ -52,6 +54,14 @@ module.exports.patch = fastify => ({
 			}
 		}
 		if (data.archive === false) data.driveArchiveEnabled = false;
+		if (Object.hasOwn(data, 'closedTicketCategory')) {
+			try {
+				await validateClosedTicketCategory(client, id, data.closedTicketCategory);
+			} catch (error) {
+				error.statusCode = 400;
+				throw error;
+			}
+		}
 		try {
 			await validateOverviewChannel(client, id, Object.hasOwn(data, 'ticketOverviewChannel') ? data.ticketOverviewChannel : original?.ticketOverviewChannel, Object.hasOwn(data, 'logChannel') ? data.logChannel : original?.logChannel, Object.hasOwn(data, 'transcriptChannel') ? data.transcriptChannel : original?.transcriptChannel);
 		} catch (error) {

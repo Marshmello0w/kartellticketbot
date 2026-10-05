@@ -62,7 +62,8 @@ function stripManagedPrefix(name) {
 	return base || 'ticket';
 }
 function channelName(ticket, now = Date.now()) {
-	const status = ticket.open === false || ticket.guild.automaticTicketStatus === false ? '' : WAIT_EMOJI[waitingState(ticket, now)];
+	if (ticket.open === false) return 'closed-' + ticket.number;
+	const status = ticket.guild.automaticTicketStatus === false ? '' : WAIT_EMOJI[waitingState(ticket, now)];
 	const prefix = (PRIORITY[ticket.priority] || '') + status;
 	const base = ticket.channelBaseName || 'ticket-' + ticket.number;
 	return prefix + Array.from(base).slice(0, 100 - Array.from(prefix).length).join('');
@@ -221,9 +222,26 @@ function queueName(client, ticketId) {
 			}
 			job.attempts = 0;
 		} while (job.dirty);
-	})().catch(error => {
+	})().catch(async error => {
 		if (!gone(error)) client.log.error(error);
 		job.retryAt = Date.now() + [1, 5, 15][Math.min(job.attempts++, 2)] * 60000;
+		// A rename already in flight can finish after Close. If correcting the
+		// closed name fails, keep its retry durable instead of only in memory.
+		if (!gone(error)) {
+			await client.prisma.ticket.updateMany({
+				where: {
+					id: ticketId,
+					open: false,
+					deleted: false,
+					channelDeletePending: false,
+					closeChannelPending: false,
+				},
+				data: {
+					closeChannelPending: true,
+					channelDeleteNextAttemptAt: new Date(job.retryAt),
+				},
+			}).catch(client.log.error);
+		}
 	}).finally(() => {
 		job.running = false;
 	});
@@ -237,7 +255,6 @@ async function syncOnce(client, ticketId, history) {
 	if (!ticket.open || ticket.overviewChannelId && ticket.overviewChannelId !== ticket.guild.ticketOverviewChannel) {
 		await removeOverview(client, ticket);
 		if (!ticket.open) {
-			if (!ticket.deleted && !ticket.channelDeletePending) queueName(client, ticketId);
 			return;
 		}
 		ticket.overviewChannelId = ticket.overviewMessageId = null;

@@ -48,7 +48,7 @@ async function fixture(t) {
   const overwrites = new D.Collection();
   const put = item => overwrites.set(item.id, { id: item.id, type: item.type ?? (members.has(item.id) || item.id === botId ? 1 : 0), allow: new D.PermissionsBitField(item.allow || []), deny: new D.PermissionsBitField(item.deny || []) });
   result.permissionOverwrites = { cache: overwrites, edit: async (id, values) => { if (result.failPermissions) throw new Error('Permissions unavailable'); id = id.id || id; const previous = overwrites.get(id); const allow = new D.PermissionsBitField(previous?.allow.bitfield || 0n), deny = new D.PermissionsBitField(previous?.deny.bitfield || 0n); for (const [flag,enabled] of Object.entries(values)) { if (enabled) { allow.add(flag); deny.remove(flag); } else { deny.add(flag); allow.remove(flag); } } put({ id, allow, deny }); }, delete: async id => overwrites.delete(id), set: async values => { overwrites.clear(); values.forEach(put); } };
-  result.edit = async value => { if (value.permissionOverwrites) await result.permissionOverwrites.set(value.permissionOverwrites); if (value.parent !== undefined) result.parentId = value.parent; if (value.topic !== undefined) result.topic = value.topic; return result; };
+  result.edit = async value => { if (value.permissionOverwrites) await result.permissionOverwrites.set(value.permissionOverwrites); if (value.name !== undefined) { result.name = value.name; result.renameCalls.push(value.name); } if (value.parent !== undefined) result.parentId = value.parent; if (value.topic !== undefined) result.topic = value.topic; return result; };
   result.delete = async () => channels.delete(id);
   channels.set(id,result); return result;
  }

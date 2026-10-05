@@ -994,12 +994,18 @@ module.exports = class TicketManager {
 		// defer asap
 		await interaction.deferReply();
 
-		// if the creator isn't in the guild , close the ticket immediately
-		// (although leaving should cause the ticket to be closed anyway)
+		// Only a confirmed departure can bypass the creator's confirmation.
+		// Timeouts and permission errors do not mean the creator left the server.
 		try {
 			await interaction.guild.members.fetch(ticket.createdById);
-		} catch {
-			return this.finallyClose(ticket.id, { reason });
+		} catch (error) {
+			if (error.code === 10007) {
+				return this.finallyClose(ticket.id, {
+					closedBy: interaction.user.id,
+					reason,
+				});
+			}
+			this.client.log.warn('Ticket #%d: could not check creator membership; requesting confirmation (%s)', ticket.number, error.code || error.name);
 		}
 
 		await this.requestClose(interaction, reason);

@@ -1,10 +1,10 @@
 const fs = require('node:fs');
 const { createHash } = require('node:crypto');
 const {
-	ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, PermissionsBitField,
+	ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, PermissionsBitField,
 } = require('discord.js');
 const {
-	participantSide, isCategoryStaff,
+	participantSide, isCategoryStaff, channelName,
 } = require('./ticket-presentation');
 const { exclusive } = require('./ticket-actions');
 const { getSupportMessages } = require('./support-texts');
@@ -12,6 +12,36 @@ const {
 	markClosed, spool,
 } = require('./drive-archive');
 const jobs = new WeakMap();
+
+async function validateClosedTicketCategory(client, guildId, categoryId) {
+	if (categoryId === null || categoryId === undefined) return null;
+	if (typeof categoryId !== 'string' || !/^\d{17,20}$/.test(categoryId)) throw new Error('Bitte eine Discord-Kategorie für geschlossene Tickets auswählen.');
+	const category = await client.channels.fetch(categoryId);
+	if (!category || category.guildId !== guildId || category.type !== ChannelType.GuildCategory) throw new Error('Bitte eine Discord-Kategorie dieses Servers auswählen.');
+	const member = category.guild.members.me || await category.guild.members.fetchMe();
+	for (const permission of ['ViewChannel', 'ManageChannels']) {
+		if (!category.permissionsFor(member)?.has(PermissionsBitField.Flags[permission])) throw new Error(`In der Kategorie für geschlossene Tickets fehlt dem Bot ${permission}.`);
+	}
+	return category;
+}
+
+async function placeClosedChannel(client, ticket, channel) {
+	const category = await validateClosedTicketCategory(client, ticket.guildId, ticket.guild.closedTicketCategory);
+	const name = channelName(ticket);
+	const changes = {};
+	if (channel.name !== name) changes.name = name;
+	if (category && channel.parentId !== category.id) {
+		changes.parent = category.id;
+		// Keep participant denies, assigned staff access and category-specific staff roles.
+		changes.lockPermissions = false;
+	}
+	if (Object.keys(changes).length) {
+		await channel.edit({
+			...changes,
+			reason: 'Ticket closed; staff workspace retained',
+		});
+	}
+}
 
 async function pinnedIds(messages) {
 	if (!messages.fetchPins) return [...(await messages.fetchPinned()).keys()];
@@ -149,7 +179,10 @@ async function finishNow(client, id) {
 			});
 		}
 		if (client.prisma.driveArchive) await markClosed(client, ticket);
-		if (channel && ticket.closeChannelPending && !ticket.channelDeletePending) await closedControls(client, ticket, channel);
+		if (channel && ticket.closeChannelPending && !ticket.channelDeletePending) {
+			await closedControls(client, ticket, channel);
+			await placeClosedChannel(client, ticket, channel);
+		}
 		ticket = await client.prisma.ticket.update({
 			where: { id },
 			data: {
@@ -277,6 +310,7 @@ async function requestDelete(client, {
 }
 
 module.exports = {
+	validateClosedTicketCategory,
 	finishCloseChannel,
 	finishPendingCloseChannels,
 	pinnedIds,

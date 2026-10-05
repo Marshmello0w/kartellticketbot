@@ -38,15 +38,17 @@ async function fixture(t) {
  overwrite(ids.other,1,['ViewChannel','SendMessages']); overwrite(ids.role,0,['ViewChannel','SendMessages']);
  overwrite(ids.staff,1,['ViewChannel','SendMessages']); overwrite(ids.bot,1,['ViewChannel','SendMessages']);
  const events=[], logs=[];
- const channel = {id:ticket.id,guildId,guild,name:'🔴🛠️ticket-1',deletable:true,deletions:0,sent:0,
+ const channel = {id:ticket.id,guildId,guild,name:'🔴🛠️ticket-1',parentId:category.discordCategory,deletable:true,deletions:0,sent:0,placements:[],
   permissionOverwrites:{cache:overwrites,edit:async(id,flags)=>{events.push('lock');if(channel.failLock)throw Object.assign(new Error('Permission'),{code:50013});const old=overwrites.get(id)||{id,type:1,allow:new D.PermissionsBitField(),deny:new D.PermissionsBitField()};for(const [name,on]of Object.entries(flags)){old[on?'allow':'deny'].add(name);old[on?'deny':'allow'].remove(name)}overwrites.set(id,old)}},
   messages:{cache:messages,delete:async id=>messages.delete(id),fetch:async query=>{if(typeof query!=='string')return messages;const found=messages.get(query);if(!found)throw Object.assign(new Error('Unknown message'),{code:10008});return found},fetchPins:async()=>({items:[],hasMore:false})},
   setName:async name=>{channel.name=name},
+  edit:async data=>{events.push('place');channel.placements.push(data);assert.ok(overwrites.get(ids.creator).deny.has(['ViewChannel','SendMessages']));assert.equal(data.permissionOverwrites,undefined);if(data.parent)assert.equal(data.lockPermissions,false);if(channel.failPlacement)throw Object.assign(new Error('Placement unavailable'),{code:channel.failPlacement});if(data.name!==undefined)channel.name=data.name;if(data.parent!==undefined)channel.parentId=data.parent;return channel},
   send:async payload=>{channel.sent++;const message={id:id(10+channel.sent),author:{id:ids.bot},embeds:(payload.embeds||[]).map(embed=>embed.toJSON()),components:payload.components,allowedMentions:payload.allowedMentions,edit:async data=>Object.assign(message,data),delete:async()=>messages.delete(message.id)};messages.set(message.id,message);return message},
   delete:async()=>{events.push('delete');if(channel.failDelete)throw Object.assign(new Error('Permission'),{code:50013});channel.deletions++;channel.gone=true}
  };
  const opening={id:ticket.openingMessageId,components:[{components:[{customId:'close'}]}],edit:async data=>Object.assign(opening,data)};messages.set(opening.id,opening);
- const client={prisma:db,i18n,user:{id:ids.bot},supers:[],guilds:{cache:new D.Collection([[guildId,guild]])},channels:{cache:new D.Collection([[ticket.id,channel]]),fetch:async id=>{if(id!==ticket.id||channel.gone)throw Object.assign(new Error('Unknown channel'),{code:10003});return channel}},log:{warn:(...x)=>logs.push(x),error:(...x)=>logs.push(x),info:{tickets(){}}},keyv:{get:async()=>undefined,set:async()=>{},delete:async()=>{}}};
+ const channels=new D.Collection([[ticket.id,channel]]);
+ const client={prisma:db,i18n,user:{id:ids.bot},supers:[],guilds:{cache:new D.Collection([[guildId,guild]])},channels:{cache:channels,fetch:async id=>{if(!channels.has(id)||channels.get(id).gone)throw Object.assign(new Error('Unknown channel'),{code:10003});return channels.get(id)}},log:{warn:(...x)=>logs.push(x),error:(...x)=>logs.push(x),info:{tickets(){}}},keyv:{get:async()=>undefined,set:async()=>{},delete:async()=>{}}};
  guild.client=client;
  t.after(()=>P.stopPresentations(client));
  const Manager=load('src/lib/tickets/manager.js',{'../threads':{pools:{crypto:{queue:async fn=>fn({encrypt:x=>x,decrypt:x=>x})}}},'../ticket-presentation':{...P,syncTicket:async()=>{},requestSync(){}},'../stats':{},'./archiver':class{},'../logging':{logTicketEvent:async(_,event)=>events.push(event.action)},'../transcripts':{deliverTranscript:async()=>{}}});
@@ -63,6 +65,7 @@ test('closed ticket keeps category text, team commands and participant privacy u
  await Promise.all([f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff}),f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff})]);
  const row=await f.read();assert.equal(row.open,false);assert.equal(row.channelDeletePending,false);assert.equal(row.closeChannelPending,false);assert.equal(row.closeCapturePending,false);assert.equal(row.deleted,false);
  assert.equal(f.channel.deletions,0);assert.equal(f.channel.sent,1);assert.equal(f.events.filter(x=>x==='close').length,1);assert.ok(f.events.indexOf('lock')<f.events.indexOf('capture'));assert.deepEqual(f.opening.components,[]);
+ assert.equal(f.channel.name,'closed-1');assert.equal(f.channel.parentId,f.category.discordCategory);assert.equal(row.priority,'HIGH');
  for(const id of [f.ids.creator,f.ids.other])assert.equal(f.channel.permissionOverwrites.cache.get(id).deny.has(['ViewChannel','SendMessages']),true);
  for(const id of [f.ids.staff,f.ids.role,f.ids.bot])assert.equal(f.channel.permissionOverwrites.cache.get(id).allow.has(['ViewChannel','SendMessages']),true);
  const control=f.channel.messages.cache.get(row.closedControlMessageId);assert.equal(control.components[0].components[0].data.label,'Endgültig entfernen');assert.deepEqual(control.allowedMentions,{parse:[]});
@@ -90,6 +93,71 @@ function interaction(f, actor=f.ids.staff, message=null) {
   showModal:async modal=>replies.push(modal),followUp:async()=>{}
  };
 }
+
+function closedCategory(f, offset=50) {
+ const id=String(BigInt(f.guildId)+BigInt(offset)),guild=f.client.guilds.cache.get(f.guildId);
+ const category={id,guildId:f.guildId,guild,name:'Closed',type:D.ChannelType.GuildCategory,permissionsFor:()=>new D.PermissionsBitField(['ViewChannel','ManageChannels']),permissionOverwrites:{cache:new D.Collection([[f.guildId,{id:f.guildId,allow:new D.PermissionsBitField('ViewChannel')}]])}};
+ f.client.channels.cache.set(id,category);return category;
+}
+
+test('manual, confirmed and automatic closures move into the selected Discord category and retain ticket identity and private staff access',sqlite,async t=>{
+ for(const kind of ['manual','confirmed','automatic']) {
+  const f=await fixture(t),target=closedCategory(f);await f.db.guild.update({where:{id:f.guildId},data:{closedTicketCategory:target.id}});
+  const request=interaction(f,f.ids.admin);await f.manager.beforeRequestClose(request);
+  let row=await f.read();assert.equal(row.open,true);assert.equal(f.channel.parentId,f.category.discordCategory);assert.equal(f.channel.name,'🔴🛠️ticket-1');assert.equal(f.channel.placements.length,0);
+  if(kind==='confirmed')await f.manager.acceptClose(interaction(f,f.ids.creator),row.closeRequestMessageId);
+  else if(kind==='automatic'){const deadline=new Date(Date.now()-1);await f.db.ticket.update({where:{id:f.ids.ticket},data:{closeScheduledAt:deadline}});await f.manager.finallyClose(f.ids.ticket,{expectedCloseAt:deadline});}
+  else await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.admin});
+  row=await f.read();assert.equal(row.open,false);assert.equal(row.closeChannelPending,false);assert.equal(row.categoryId,f.category.id);assert.equal(row.priority,'HIGH');assert.equal(row.channelBaseName,'ticket-1');
+  assert.equal(f.channel.name,'closed-1');assert.equal(f.channel.parentId,target.id);assert.equal(f.channel.placements.length,1);assert.equal(f.channel.placements[0].lockPermissions,false);assert.equal(f.channel.deletions,0);
+  assert.equal(f.channel.permissionOverwrites.cache.get(f.guildId).deny.has('ViewChannel'),true);assert.equal(f.channel.permissionOverwrites.cache.get(f.ids.creator).deny.has('ViewChannel'),true);
+  for(const id of [f.ids.staff,f.ids.role,f.ids.bot])assert.equal(f.channel.permissionOverwrites.cache.get(id).allow.has(['ViewChannel','SendMessages']),true);
+  assert.equal(target.permissionOverwrites.cache.get(f.guildId).allow.has('ViewChannel'),true);
+  const sent=f.channel.sent;await close.finishPendingCloseChannels({...f.client});assert.equal(f.channel.placements.length,1);assert.equal(f.channel.sent,sent);
+ }
+});
+
+test('category/name API failures persist retries at 1, 5 and 15 minutes and recover after restart with current settings',sqlite,async t=>{
+ const f=await fixture(t),first=closedCategory(f),second=closedCategory(f,51);await f.db.guild.update({where:{id:f.guildId},data:{closedTicketCategory:first.id}});
+ f.channel.failPlacement=50013;await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.admin});
+ for(const [index,delay] of [60000,300000,900000].entries()) {
+  const row=await f.read();assert.equal(row.channelDeleteAttempts,index+1);assert.equal(row.closeChannelPending,true);assert.equal(row.closeCapturePending,false);assert.equal(row.channelDeletePending,false);assert.ok(+row.channelDeleteNextAttemptAt-Date.now()>=delay-3000);
+  assert.equal(f.channel.sent,1);assert.equal(f.events.filter(event=>event==='capture').length,1);assert.equal(f.channel.name,'🔴🛠️ticket-1');assert.equal(f.channel.permissionOverwrites.cache.get(f.ids.creator).deny.has('ViewChannel'),true);
+  if(index<2){await f.db.ticket.update({where:{id:f.ids.ticket},data:{channelDeleteNextAttemptAt:new Date(Date.now()-1)}});await close.finishPendingCloseChannels({...f.client});}
+ }
+ const db=new PrismaClient({datasources:{db:{url:process.env.TEST_DATABASE_URL}}});db.$use(require('../src/lib/middleware/prisma-sqlite'));t.after(()=>db.$disconnect());
+ await db.guild.update({where:{id:f.guildId},data:{closedTicketCategory:second.id}});await db.ticket.update({where:{id:f.ids.ticket},data:{channelDeleteNextAttemptAt:new Date(Date.now()-1)}});f.channel.failPlacement=false;
+ await close.finishPendingCloseChannels({...f.client,prisma:db});
+ const row=await f.read();assert.equal(row.closeChannelPending,false);assert.equal(row.channelDeleteNextAttemptAt,null);assert.equal(row.channelDeleteAttempts,0);assert.equal(f.channel.parentId,second.id);assert.equal(f.channel.name,'closed-1');assert.equal(f.channel.sent,1);assert.equal(f.channel.deletions,0);
+});
+
+test('a removed closed category leaves closure durable and private, while explicit Delete can still finish',sqlite,async t=>{
+ const f=await fixture(t),target=closedCategory(f);await f.db.guild.update({where:{id:f.guildId},data:{closedTicketCategory:target.id}});f.client.channels.cache.delete(target.id);
+ await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff});const row=await f.read();assert.equal(row.open,false);assert.equal(row.closeChannelPending,true);assert.equal(row.closeCapturePending,false);assert.equal(f.channel.sent,1);
+ assert.equal(f.channel.parentId,f.category.discordCategory);assert.equal(f.channel.permissionOverwrites.cache.get(f.ids.creator).deny.has('ViewChannel'),true);
+ await close.requestDelete(f.client,{guildId:f.guildId,ticketId:f.ids.ticket,actorId:f.ids.admin});await close.finishCloseChannel(f.client,f.ids.ticket);
+ assert.equal((await f.read()).deleted,true);assert.equal(f.channel.deletions,1);
+});
+
+test('normal Close from the opening button and slash command waits for the creator even for administrators and bot owners',sqlite,async t=>{
+ for(const entry of ['button','command','owner']) {
+  const f=await fixture(t),actor=entry==='owner'?f.ids.other:f.ids.admin;if(entry==='owner')f.client.supers=[actor];
+  const value=interaction(f,actor),file=entry==='command'?'src/commands/slash/close.js':'src/buttons/close.js',Handler=load(file),handler=Object.create(Handler.prototype);handler.client=f.client;
+  if(entry==='command')await handler.run(value);else await handler.run({action:'close'},value);
+  let row=await f.read();assert.equal(row.open,true);assert.equal(row.closeRequestedById,actor);assert.ok(row.closeScheduledAt>new Date());assert.equal(f.events.includes('lock'),false);assert.equal(f.channel.placements.length,0);
+  await f.manager.acceptClose(interaction(f,actor),row.closeRequestMessageId);assert.equal((await f.read()).open,true);
+  await f.manager.acceptClose(interaction(f,f.ids.creator),row.closeRequestMessageId);row=await f.read();assert.equal(row.open,false);assert.equal(f.channel.name,'closed-1');
+ }
+});
+
+test('temporary member fetch errors never bypass user confirmation, while a confirmed server departure still closes',sqlite,async t=>{
+ for(const code of ['ETIMEDOUT',50013,10007]) {
+  const f=await fixture(t),guild=f.client.guilds.cache.get(f.guildId);guild.members.fetch=async()=>{throw Object.assign(new Error('Member fetch failed'),{code})};
+  await f.manager.beforeRequestClose(interaction(f,f.ids.admin));const row=await f.read();
+  if(code===10007){assert.equal(row.open,false);assert.equal(row.closedById,f.ids.admin);assert.equal(f.channel.name,'closed-1');}
+  else{assert.equal(row.open,true);assert.equal(row.closeRequestedById,f.ids.admin);assert.ok(row.closeRequestMessageId);assert.equal(f.events.includes('lock'),false);assert.equal(f.channel.placements.length,0);}
+ }
+});
 
 test('user request, continued conversation and a fresh team request require a new creator confirmation',sqlite,async t=>{
  const f=await fixture(t);
@@ -243,8 +311,9 @@ test('Delete interaction is private, refuses unrelated users and preserves its d
 });
 
 test('archiving disabled keeps only Delete and does not block explicit deletion',sqlite,async t=>{
- const f=await fixture(t);await f.db.guild.update({where:{id:f.guildId},data:{archive:false}});await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff});
+ const f=await fixture(t),target=closedCategory(f);await f.db.guild.update({where:{id:f.guildId},data:{archive:false,closedTicketCategory:target.id}});await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff});
  const row=await f.read(),control=f.channel.messages.cache.get(row.closedControlMessageId);assert.equal(control.components[0].components.length,1);assert.match(control.embeds[0].description,/deaktiviert/);assert.equal(f.events.includes('capture'),false);assert.equal(row.transcriptPending,false);
+ assert.equal(f.channel.name,'closed-1');assert.equal(f.channel.parentId,target.id);
  await close.requestDelete(f.client,{guildId:f.guildId,ticketId:f.ids.ticket,actorId:f.ids.staff});await close.finishCloseChannel(f.client,f.ids.ticket);assert.equal(f.channel.deletions,1);
 });
 

@@ -124,6 +124,7 @@ model Guild {
     automaticTicketStatus Boolean @default(true)
     textOverrides   String     @default("{}")
     transcriptChannel String?
+    closedTicketCategory String?
     autoClose     Int        @default(43200000)
     autoTag       String     @default("[]")
     archive       Boolean    @default(true)
