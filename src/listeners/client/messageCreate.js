@@ -1,4 +1,5 @@
 const { recordParticipant } = require('../../lib/ticket-presentation');
+const { claimOnReply } = require('../../lib/ticket-actions');
 const { getSupportMessages } = require('../../lib/support-texts');
 const { Listener } = require('@eartharoid/dbf');
 const {
@@ -184,25 +185,34 @@ module.exports = class extends Listener {
 					});
 			}
 		} else {
+			const assignment = claimOnReply(client, message).catch(error => {
+				client.log.warn('Automatic assignment failed for ticket %s', message.channel.id);
+				client.log.error(error);
+			});
 			const settings = await client.prisma.guild.findUnique({ where: { id: message.guild.id } });
-			if (!settings) return;
+			if (!settings) {
+				await assignment;
+				return;
+			}
 			const getMessage = await getSupportMessages(client, {
 				guildId: settings.id,
 				ticketId: message.channel.id,
 			});
 			let ticket = await client.prisma.ticket.findUnique({ where: { id: message.channel.id } });
 
-			if (ticket?.open) {
-				// archive messages
-				if (settings.archive) {
-					client.tickets.archiver.saveMessage(ticket.id, message)
-						.catch(error => {
-							client.log.warn('Failed to archive message', message.id);
-							client.log.error(error);
-							message.react('❌').catch(client.log.error);
-						});
-				}
+			// Queue archival before waiting for Discord permission changes. A slow
+			// assignment must not delay saving the reply and its attachments.
+			if (ticket?.open && settings.archive) {
+				client.tickets.archiver.saveMessage(ticket.id, message)
+					.catch(error => {
+						client.log.warn('Failed to archive message', message.id);
+						client.log.error(error);
+						message.react('❌').catch(client.log.error);
+					});
+			}
+			await assignment;
 
+			if (ticket?.open) {
 				if (!message.author.bot) {
 					// update user's message count
 					client.prisma.user.upsert({

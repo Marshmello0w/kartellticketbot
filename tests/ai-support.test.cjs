@@ -274,6 +274,16 @@ test('SQLite/Discord: greetings and uwu ask for the issue locally in DE/EN, use 
  assert.equal((await f.read(other.ticket.id)).aiState, 'human');
 });
 
+test('SQLite/Discord: default human-support button follows detected or configured ticket language on a German server', sqlite, async t => {
+ const f = await aiFixture(t), de = await f.create(), detected = await f.create(), configured = await f.create({ categoryId: f.en.id });
+ await f.db.category.update({ where: { id: f.en.id }, data: { aiResponseLanguage: 'en', textOverrides: {} } });
+ await f.queue(de, 'Hallo'); await f.queue(detected, 'Hello'); await f.queue(configured, 'uwu');
+ await A.tick(f.client, async () => assert.fail('Local greetings use no Gemini tokens'));
+ const label = item => item.channel.messages.cache.last().components[0].components[0].data.label;
+ assert.equal(label(de), 'Supporter anfordern'); assert.equal(label(detected), 'Request support'); assert.equal(label(configured), 'Request support');
+ assert.equal((await f.read(detected.ticket.id)).aiLanguage, 'en'); assert.equal((await f.read(configured.ticket.id)).aiLanguage, 'en');
+});
+
 test('SQLite/Discord: thinking sends typing while generation is pending; plain replies retain Markdown, suppress previews and fit the message limit', sqlite, async t => {
  const f = await aiFixture(t), item = await f.create();
  let typed, typingCalls = 0;

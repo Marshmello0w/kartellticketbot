@@ -2,7 +2,7 @@ buttons:
   delete:
     text: Delete
   ai_human:
-    text: Request a supporter
+    text: Request support
   accept_close_request:
     emoji: ✅
     text: Accept

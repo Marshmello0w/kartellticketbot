@@ -1,4 +1,5 @@
 const { recordParticipant } = require('../../lib/ticket-presentation');
+const { claimOnReply } = require('../../lib/ticket-actions');
 const { SlashCommand } = require('@eartharoid/dbf');
 const {
 	ApplicationCommandOptionType, MessageFlags,
@@ -59,6 +60,14 @@ module.exports = class TagSlashCommand extends SlashCommand {
 					.setDescription(tag.content),
 			],
 		});
-		if (user && tag.guild.id === interaction.guildId) await recordParticipant(client, interaction.channelId, interaction.user.id, sent?.createdAt || new Date(), sent?.id || null);
+		if (user && tag.guild.id === interaction.guildId) {
+			await claimOnReply(client, {
+				guildId: interaction.guildId,
+				channelId: interaction.channelId,
+				author: interaction.user,
+				content: tag.content,
+			}).catch(client.log.error);
+			await recordParticipant(client, interaction.channelId, interaction.user.id, sent?.createdAt || new Date(), sent?.id || null);
+		}
 	}
 };

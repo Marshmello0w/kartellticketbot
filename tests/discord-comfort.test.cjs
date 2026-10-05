@@ -192,11 +192,11 @@ test('SQLite: attachment messages count; bot, webhook, system and private tag me
   assert.equal(+(await f.read(row.ticket.id)).lastParticipantAt,before);
  }
  const tag=await f.db.tag.create({data:{guildId:f.guildId,name:'Hello',content:'Hello',regex:'hello'}});
- const Tag=load('src/commands/slash/tag.js'); const command=Object.create(Tag.prototype); command.client=f.client;
+ const Tag=load('src/commands/slash/tag.js',{'../../lib/ticket-actions':actions}); const command=Object.create(Tag.prototype); command.client=f.client;
  let publicReply=false; const replies=[];
  const interaction={guildId:f.guildId,channelId:row.ticket.id,user:{id:f.ids.staff},options:{getUser:()=>publicReply?{id:f.ids.creator,toString:()=>`<@${f.ids.creator}>`}:null,getInteger:()=>tag.id},deferReply:async payload=>replies.push(payload),editReply:async()=>{}};
- await command.run(interaction); assert.equal(+(await f.read(row.ticket.id)).lastParticipantAt,before); assert.equal(replies[0].flags,D.MessageFlags.Ephemeral);
- publicReply=true; await command.run(interaction); assert.equal((await f.read(row.ticket.id)).lastParticipantSide,'STAFF'); assert.equal(replies[1].flags,0);
+ await command.run(interaction); assert.equal(+(await f.read(row.ticket.id)).lastParticipantAt,before); assert.equal(replies[0].flags,D.MessageFlags.Ephemeral); assert.equal((await f.read(row.ticket.id)).claimedById,null);
+ publicReply=true; await command.run(interaction); assert.equal((await f.read(row.ticket.id)).lastParticipantSide,'STAFF'); assert.equal(replies[1].flags,0); assert.equal((await f.read(row.ticket.id)).claimedById,f.ids.staff);
 });
 test('SQLite: manual, confirmed, automatic and channel-deletion closure remove their overview only', sqlite, async t => {
  const f=await fixture(t), logs=[];

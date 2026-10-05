@@ -44,12 +44,13 @@ function categoryBaseName(category, member, number) {
 	return category.channelName.replace(/{+\s?(user)?name\s?}+/gi, member.user.username).replace(/{+\s?(nick|display)(name)?\s?}+/gi, member.displayName).replace(/{+\s?num(ber)?\s?}+/gi, number === 1488 ? '1487b' : number);
 }
 async function performAction(client, {
-	guildId, ticketId, actorId, action, value,
+	guildId, ticketId, actorId, action, value, automatic = false,
 }) {
 	return exclusive(client, ticketId, async () => {
 		const {
 			ticket, guild, channel, actor, admin,
 		} = await context(client, guildId, ticketId, actorId, action === 'transfer', ['rename', 'priority'].includes(action));
+		if (automatic && (action !== 'claim' || ticket.createdById === actorId || ticket.claimedById)) return null;
 		const original = {}, updated = {};
 		// Team actions permanently end automated triage for this ticket.
 		await client.prisma.ticket.updateMany({
@@ -83,6 +84,10 @@ async function performAction(client, {
 				where: {
 					id: ticketId,
 					open: true,
+					deleted: false,
+					channelDeletePending: false,
+					categoryId: ticket.categoryId,
+					createdById: ticket.createdById,
 					claimedById: ticket.claimedById,
 				},
 				data: {
@@ -279,9 +284,30 @@ async function performAction(client, {
 		});
 	});
 }
+async function claimOnReply(client, message) {
+	const guildId = message.guildId || message.guild?.id;
+	const ticketId = message.channelId || message.channel?.id;
+	if (!guildId || !ticketId || !message.author || message.author.bot || message.webhookId || message.system || !message.content?.trim() && !message.attachments?.size) return false;
+	try {
+		// Enter the same per-ticket queue immediately, preserving gateway arrival
+		// order and competing safely with explicit Claim, Release and Handoff.
+		const ticket = await performAction(client, {
+			guildId,
+			ticketId,
+			actorId: message.author.id,
+			action: 'claim',
+			automatic: true,
+		});
+		return Boolean(ticket);
+	} catch (error) {
+		if (['closed', 'forbidden', 'assigned', 'changed', 'target'].some(key => error.supportKey === 'ticket.support.errors.' + key)) return false;
+		throw error;
+	}
+}
 module.exports = {
 	categoryBaseName,
 	context,
 	exclusive,
 	performAction,
+	claimOnReply,
 };
