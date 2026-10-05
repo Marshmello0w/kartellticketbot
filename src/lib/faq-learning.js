@@ -1,7 +1,5 @@
 const { createHash } = require('node:crypto');
-const {
-	isCategoryStaff, participantSide,
-} = require('./ticket-presentation');
+const { isCategoryStaff } = require('./ticket-presentation');
 const Gemini = require('./gemini-support');
 const Language = require('./ai-language');
 
@@ -124,8 +122,10 @@ async function collect(client, ticket) {
 		const redacted = safeText(message.text);
 		if (redacted.length > 4000) incomplete = true;
 		const text = redacted.slice(0, 4000);
-		const side = await participantSide(client, ticket, message.authorId);
-		const confirmed = side === 'STAFF' || message.authorId !== ticket.createdById && message.roleId && ticket.category.staffRoles.includes(message.roleId);
+		// FAQ evidence follows the author's support permissions, including staff
+		// who opened the ticket. Waiting status still treats the creator as a user.
+		const guild = client.guilds.cache.get(ticket.guildId);
+		const confirmed = guild && await isCategoryStaff(client, guild, ticket.category, message.authorId) || message.roleId && ticket.category.staffRoles.includes(message.roleId);
 		const entry = {
 			id: message.id,
 			side: confirmed ? 'STAFF' : 'USER',
@@ -201,6 +201,7 @@ async function processJob(client, job, generator = Gemini.analyzeFaq) {
 			return await finish(client, job, {
 				state: 'done',
 				proposals: 0,
+				errorCode: 'NO_STAFF',
 			});
 		}
 		const claimed = await client.prisma.faqJob.updateMany({
@@ -271,7 +272,10 @@ async function processJob(client, job, generator = Gemini.analyzeFaq) {
 			}
 			await tx.faqJob.update({
 				where: { id: job.id },
-				data: { proposals },
+				data: {
+					proposals,
+					errorCode: proposals ? null : entries.length ? 'DUPLICATES' : 'NO_REUSABLE_ANSWER',
+				},
 			});
 		});
 	} catch (error) {

@@ -68,6 +68,9 @@ commands:
           description: Ticketnummer oder Kanal-ID; ohne Angabe dieses Ticket
       started: Der Chat wird analysiert. FAQ-Vorschläge erscheinen auf der Webseite
         unter „FAQ“.
+      no_staff: Keine menschliche Antwort von zuständigen Supportern oder Administratoren erkannt. Reine Nutzer- und Botantworten werden nicht als FAQ-Wissen übernommen.
+      no_reusable_answer: Die KI hat keine eindeutig belegte, allgemein verwendbare Antwort erkannt. Eine konkrete Erklärung eines Supporters genügt; das Ticket muss dafür nicht geschlossen sein.
+      duplicates: Die gefundenen Fragen sind bereits in den FAQ vorhanden. Bestehende Vorschläge, freigegebene und verworfene Einträge werden nicht überschrieben.
       done: "{messages} Textnachrichten ausgewertet: {count} neue FAQ-Vorschläge.
         Prüfe und veröffentliche sie auf der Webseite unter „FAQ“."
       failed: Die Analyse konnte nicht abgeschlossen werden. Den Status findest du auf

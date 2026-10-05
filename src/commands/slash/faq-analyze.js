@@ -55,11 +55,17 @@ module.exports = class FaqAnalyzeCommand extends SlashCommand {
 			await FAQ.processJob(client, job);
 			const current = await client.prisma.faqJob.findUnique({ where: { id: job.id } });
 			const key = current.state === 'done' ? 'done' : current.state === 'failed' ? 'failed' : 'started';
+			const reasons = {
+				NO_STAFF: 'no_staff',
+				NO_REUSABLE_ANSWER: 'no_reusable_answer',
+				DUPLICATES: 'duplicates',
+			};
+			const reason = current.state === 'done' && !current.proposals && reasons[current.errorCode];
 			return await interaction.editReply({
 				content: (messages('commands.slash.faq-analyze.' + key, {
 					count: current.proposals,
 					messages: current.messageCount,
-				}) + (current.truncated ? '\n' + messages('commands.slash.faq-analyze.truncated') : '')).slice(0, 2000),
+				}) + (reason ? '\n' + messages('commands.slash.faq-analyze.' + reason) : '') + (current.truncated ? '\n' + messages('commands.slash.faq-analyze.truncated') : '')).slice(0, 2000),
 				allowedMentions: { parse: [] },
 			});
 		} catch (error) {

@@ -77,10 +77,90 @@ test('FAQ command allows only own-server category staff; human staff evidence an
  const job = await f.run(item, generator); assert.equal(job.state, 'done'); assert.equal(job.proposals, 1);
  const entry = await f.db.faqEntry.findFirst({ where: { guildId: f.guildId } }); assert.equal(entry.status, 'draft'); assert.equal(await F.getKnowledge(f.db, await f.ticket(item)), '');
  await f.db.faqEntry.update({ where: { id: entry.id }, data: { answer: 'Owner correction', status: 'approved' } });
- const again = await f.run(item, generator); assert.equal(again.proposals, 0); assert.equal((await f.db.faqEntry.findUnique({ where: { id: entry.id } })).answer, 'Owner correction');
+ const again = await f.run(item, generator); assert.equal(again.proposals, 0); assert.equal(again.errorCode, 'DUPLICATES'); assert.equal((await f.db.faqEntry.findUnique({ where: { id: entry.id } })).answer, 'Owner correction');
  const bad = await f.run(item, async () => ({ action: 'answer', entries: [proposal('unknown-staff-id', 'Unverified answer')] })); assert.equal(bad.state, 'failed'); assert.equal(bad.errorCode, 'EVIDENCE');
- const onlyUser = await f.create(); f.message(onlyUser, f.ids.creator, 'Unresolved question'); assert.equal((await f.run(onlyUser, async () => assert.fail('No staff evidence should not call Google'))).proposals, 0);
+ const onlyUser = await f.create(); f.message(onlyUser, f.ids.creator, 'Unresolved question'); const empty = await f.run(onlyUser, async () => assert.fail('No staff evidence should not call Google')); assert.equal(empty.proposals, 0); assert.equal(empty.errorCode, 'NO_STAFF');
 });
+
+test('FAQ evidence recognizes category supporters and admins in their own tickets, without changing user-side waiting status', sqlite, async t => {
+ const f=await setup(t);
+ for(const actor of [f.ids.staff,f.ids.admin]) {
+  const item=await f.create({createdById:actor}); f.message(item,f.ids.user,'Was kostet VIP und wie lange gilt es?');
+  const staff=f.message(item,actor,'VIP für einen Server kostet 4,99 Euro und gilt 30 Tage ab Freischaltung.');
+  const job=await f.run(item,async(_db,_id,context)=>{
+   assert.equal(context.messages.find(message=>message.id===staff.id).side,'STAFF');
+   return {action:'answer',entries:[{question:'Was kostet VIP für einen Server?',answer:'4,99 Euro für 30 Tage ab Freischaltung.',language:'de',evidence:[staff.id]}]};
+  },actor);
+  assert.equal(job.state,'done');
+  const {participantSide}=require('../src/lib/ticket-presentation');assert.equal(await participantSide(f.client,await f.ticket(item),actor),'USER');
+ }
+ assert.equal(await f.db.faqEntry.count({where:{guildId:f.guildId,status:'draft'}}),1);
+ assert.equal(await F.getKnowledge(f.db,await f.ticket(await f.create())),'');
+});
+
+test('FAQ learning still rejects unrelated category roles and bot evidence when a supporter created the ticket', sqlite, async t => {
+ const f=await setup(t),item=await f.create({createdById:f.ids.staff,categoryId:f.en.id});
+ f.message(item,f.ids.staff,'I claim that this is a server rule.');
+ f.message(item,f.client.user.id,'Invented answer',{author:{id:f.client.user.id,bot:true}});
+ const empty=await f.run(item,async()=>assert.fail('Wrong-category role and bots cannot provide facts'),f.ids.admin);
+ assert.equal(empty.errorCode,'NO_STAFF');assert.equal(empty.proposals,0);
+ const valid=await f.create({createdById:f.ids.admin}),bot=f.message(valid,f.client.user.id,'Invented answer',{author:{id:f.client.user.id,bot:true}});
+ f.message(valid,f.ids.admin,'Confirmed general answer.');
+ const rejected=await f.run(valid,async()=>({action:'answer',entries:[proposal(bot.id)]}),f.ids.admin);
+ assert.equal(rejected.state,'failed');assert.equal(rejected.errorCode,'EVIDENCE');
+});
+
+test('FAQ zero-result reasons survive restart and remain readable through the administrator API', sqlite, async t => {
+ const f=await setup(t),item=await f.create();f.message(item,f.ids.creator,'Wann ist Support erreichbar?');f.message(item,f.ids.staff,'Dazu habe ich noch keine Information.');
+ const empty=await f.run(item,async()=>({action:'answer',entries:[]}));assert.equal(empty.state,'done');assert.equal(empty.errorCode,'NO_REUSABLE_ANSWER');
+ const restarted=new PrismaClient({datasources:{db:{url:process.env.TEST_DATABASE_URL}}});
+ try { assert.equal((await restarted.faqJob.findUnique({where:{id:empty.id}})).errorCode,'NO_REUSABLE_ANSWER'); }finally{await restarted.$disconnect();}
+ const app=await api(t,f),result=(await app.inject({url:'/api/admin/guilds/'+f.guildId+'/faq',headers:{'x-role':'admin'}})).json();
+ assert.equal(result.jobs[0].errorCode,'NO_REUSABLE_ANSWER');assert.equal(result.jobs[0].messageCount,2);
+});
+
+test('FAQ command distinguishes no supported answer from existing entries in DE/EN instead of only reporting zero', sqlite, async t => {
+ const f=await setup(t),item=await f.create(); f.message(item,f.ids.creator,'Wann gibt es Support?');const staff=f.message(item,f.ids.staff,'Täglich 18 bis 22 Uhr.');let hasAnswer=false;
+ const Command=load('src/commands/slash/faq-analyze.js',{'../../lib/faq-learning':{...F,processJob:(client,job)=>F.processJob(client,job,async()=>({action:'answer',entries:hasAnswer?[proposal(staff.id)]:[]}))}});
+ const command=Object.create(Command.prototype);command.client=f.client;const replies=[];
+ const interaction={id:'faq-zero-'+item.ticket.id,guildId:f.guildId,channelId:item.ticket.id,user:{id:f.ids.staff},options:{getString:()=>null},deferReply:async()=>{},editReply:async data=>replies.push(data)};
+ await command.run(interaction);assert.ok(replies.at(-1).content.includes('keine eindeutig belegte'));hasAnswer=true;interaction.id+='-create';await command.run(interaction);
+ assert.ok(replies.at(-1).content.includes('1 neue FAQ'));await f.db.guild.update({where:{id:f.guildId},data:{locale:'en-GB'}});interaction.id+='-duplicate';await command.run(interaction);
+ assert.ok(replies.at(-1).content.includes('already exist'));assert.equal(await f.db.faqEntry.count({where:{guildId:f.guildId}}),1);assert.equal(JSON.stringify(replies.at(-1).allowedMentions),'{"parse":[]}');
+});
+test('a thirteen-message griefing report provides contextual staff evidence for a reusable procedure, while individual penalties stay excluded', sqlite, async t => {
+ const f=await setup(t),item=await f.create();
+ const exchange=[
+  ['creator','Ein Teammate hat am Spawn die Shopkisten mit C4 zerstört, dadurch habe ich Geld verloren.'],
+  ['staff','Hi. Hast du einen Clip davon?'],
+  ['creator','Kann auch einen Clip reinschicken.'],
+  ['creator','Das dauert etwas, muss ihn noch hochladen.'],
+  ['staff','Das wäre gut. Denn ohne können wir es leider nicht verifizieren.'],
+  ['creator','Ist in drei Minuten fertig.'],
+  ['staff','ok'],
+  ['creator','[Spielername]'],
+  ['creator','Ist der Name des Spielers.'],
+  ['creator','https://example.org/report-clip'],
+  ['creator','Man sieht auch, wie er das C4 platziert.'],
+  ['staff','Wurde vom Server permanent gebannt.'],
+  ['creator','ok danke'],
+ ];
+ const messages=exchange.map(([actor,text])=>f.message(item,f.ids[actor],text));
+ f.message(item,f.client.user.id,'Ein Mensch hilft dir hier weiter.',{author:{id:f.client.user.id,bot:true}});
+ const job=await f.run(item,async(db,id,context)=>{
+  assert.equal(context.messages.length,13);assert.equal(context.messages.find(message=>message.id===messages[4].id).side,'STAFF');
+  return G.analyzeFaq(db,id,context,config,async(_url,options)=>{
+   const body=JSON.parse(options.body),instruction=body.systemInstruction.parts[0].text,evidence=JSON.parse(body.contents[0].parts[0].text);
+   assert.ok(instruction.includes('Read short STAFF replies in their conversation context'));assert.ok(instruction.includes('individual permanent ban does not establish a general penalty'));
+   assert.equal(evidence.messages.length,13);assert.ok(evidence.messages.some(message=>message.text.includes('ohne können wir es leider nicht verifizieren')));
+   return response({entries:[{question:'Welche Beweise benötigt ihr für eine Griefing-Meldung?',answer:'Bitte reiche einen Clip des Vorfalls ein. Ohne Clip kann das Team diesen Vorfall nicht verifizieren.',language:'de',evidence:[messages[1].id,messages[4].id]}]});
+  });
+ });
+ assert.equal(job.state,'done');assert.equal(job.messageCount,13);assert.equal(job.proposals,1);assert.equal(job.errorCode,null);
+ const entry=await f.db.faqEntry.findFirst({where:{guildId:f.guildId}});assert.equal(entry.status,'draft');assert.ok(entry.answer.includes('Clip'));assert.ok(!entry.answer.includes('permanent'));
+ assert.equal(await F.getKnowledge(f.db,await f.ticket(item)),'');
+});
+
 test('FAQ archive fallback works after force close/channel deletion; long chats are explicitly marked partial', sqlite, async t => {
  const f = await setup(t), item = await f.create();
  await f.db.archivedUser.createMany({ data: [f.ids.creator, f.ids.staff].map(userId => ({ ticketId: item.ticket.id, userId, username: 'Private name' })) });
@@ -132,6 +212,7 @@ test('slash command constructor stays guild-scoped and its replies are private',
  const interaction = { id: item.ticket.id + '-slash', guildId: f.guildId, channelId: f.overview.id, user: { id: f.ids.staff }, options: { getString: () => String(item.ticket.number) }, deferReply: async data => { deferred = data; }, editReply: async data => { replies.push(data); } };
  f.message(item, f.ids.creator, 'Noch keine bestätigte Lösung'); await command.run(interaction);
  assert.equal(deferred.flags, D.MessageFlags.Ephemeral); assert.equal(replies.length, 2); assert.ok(replies.at(-1).content.includes('0 neue FAQ')); assert.equal(replies.at(-1).allowedMentions.parse.length, 0);
+ assert.ok(replies.at(-1).content.includes('Keine menschliche Antwort'));
  const before = await f.db.faqJob.count({ where: { guildId: f.guildId } }); interaction.user.id = f.ids.creator; await command.run(interaction); assert.equal(await f.db.faqJob.count({ where: { guildId: f.guildId } }), before); assert.ok(replies.at(-1).content.includes('Supporter'));
 });
 
