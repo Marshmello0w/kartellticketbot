@@ -25,6 +25,7 @@ const ExtendedEmbedBuilder = require('../embed');
 const { logTicketEvent } = require('../logging');
 const { isStaff } = require('../users');
 const { sendWorkingHoursNotice } = require('../working-hours');
+const { closeRequestError } = require('../close-request');
 
 const { getSUID } = require('../logging');
 const {
@@ -77,14 +78,16 @@ module.exports = class TicketManager {
 				id: ticket.id,
 				open: true,
 				lastMessageAt: ticket.lastMessageAt,
+				closeRequestedAt: ticket.closeRequestedAt,
+				closeRequestMessageId: ticket.closeRequestMessageId,
 			},
 		});
 		if (result.count) await syncTicket(this.client, ticket.id);
 		else await message.delete?.().catch(this.client.log.error);
 	}
 
-	async cancelClose(ticketId) {
-		await this.client.prisma.ticket.update({
+	async cancelClose(ticketId, requestId = null) {
+		const result = await this.client.prisma.ticket.updateMany({
 			data: {
 				closeRequestedAt: null,
 				closeScheduledAt: null,
@@ -92,8 +95,13 @@ module.exports = class TicketManager {
 				closeRequestReason: null,
 				closeRequestMessageId: null,
 			},
-			where: { id: ticketId },
+			where: {
+				id: ticketId,
+				open: true,
+				...(requestId ? { closeRequestMessageId: requestId } : {}),
+			},
 		});
+		return Boolean(result.count);
 	}
 
 	async getCloseDetails(ticketId) {
@@ -969,14 +977,6 @@ module.exports = class TicketManager {
 				],
 			});
 		}
-		if (staff && ticket.createdById !== interaction.user.id) {
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-			await interaction.editReply({ content: getMessage('ticket.close.closed.description') });
-			return this.finallyClose(ticket.id, {
-				closedBy: interaction.user.id,
-				reason,
-			});
-		}
 
 		if (
 			ticket.createdById === interaction.user.id &&
@@ -1022,7 +1022,14 @@ module.exports = class TicketManager {
 				embeds: [],
 			});
 		}
-		const staff = interaction.user.id !== ticket.createdById && await isStaff(interaction.guild, interaction.user.id);
+		const staff = interaction.user.id !== ticket.createdById && await isCategoryStaff(this.client, interaction.guild, ticket.category, interaction.user.id);
+		if (interaction.user.id !== ticket.createdById && !staff) {
+			return interaction.editReply({
+				content: getMessage('ticket.close.forbidden.description'),
+				components: [],
+				embeds: [],
+			});
+		}
 		const closeButtonId = {
 			action: 'close',
 			expect: staff ? 'user' : 'staff',
@@ -1076,10 +1083,21 @@ module.exports = class TicketManager {
 	 * | import("discord.js").ButtonInteraction
 	 * | import("discord.js").ModalSubmitInteraction} interaction
 	 */
-	async acceptClose(interaction) {
+	async acceptClose(interaction, requestId = interaction.message?.id) {
 		const ticket = await this.getTicket(interaction.channel.id, true);
-		const getMessage = await getSupportMessages(this.client, { ticketId: ticket.id });
-		if (!ticket.open) return interaction.editReply({ content: getMessage('ticket.close.already_closed') });
+		const getMessage = await getSupportMessages(this.client, {
+			ticketId: interaction.channel.id,
+			guildId: interaction.guildId || interaction.guild?.id,
+		});
+		const error = await closeRequestError(this.client, ticket, interaction, requestId);
+		if (error) {
+			return interaction.editReply({
+				content: getMessage(error),
+				components: [],
+				embeds: [],
+			});
+		}
+		const details = await this.getCloseDetails(ticket.id);
 		await interaction.editReply({
 			embeds: [
 				new ExtendedEmbedBuilder({
@@ -1092,7 +1110,18 @@ module.exports = class TicketManager {
 			],
 		});
 		await new Promise(resolve => setTimeout(resolve, 3e3));
-		await this.finallyClose(interaction.channel.id, await this.getCloseDetails(interaction.channel.id));
+		const fresh = await this.getTicket(ticket.id, true);
+		const currentError = await closeRequestError(this.client, fresh, interaction, requestId);
+		if (currentError || !await this.finallyClose(ticket.id, {
+			...details,
+			expectedRequestId: requestId,
+		})) {
+			return interaction.editReply({
+				content: getMessage(currentError || 'ticket.close.request_expired'),
+				components: [],
+				embeds: [],
+			});
+		}
 	}
 
 	/**
@@ -1103,6 +1132,7 @@ module.exports = class TicketManager {
 		closedBy = null,
 		reason = null,
 		expectedCloseAt = null,
+		expectedRequestId = null,
 	}) {
 		let ticket = await this.getTicket(ticketId, true);
 		if (!ticket || !ticket.open) return;
@@ -1147,6 +1177,12 @@ module.exports = class TicketManager {
 						id: ticket.id,
 						open: true,
 						...(expectedCloseAt ? { closeScheduledAt: expectedCloseAt } : {}),
+						...(expectedRequestId ? {
+							closeRequestMessageId: expectedRequestId,
+							closeRequestedAt: ticket.closeRequestedAt,
+							createdById: ticket.createdById,
+							categoryId: ticket.categoryId,
+						} : {}),
 					},
 				});
 				if (!result.count) return;
@@ -1309,6 +1345,7 @@ module.exports = class TicketManager {
 		} catch (error) {
 			this.client.log.error(error);
 		}
+		return true;
 
 	}
 };

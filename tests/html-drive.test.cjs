@@ -607,7 +607,8 @@ test('SQLite: manual, confirmed and automatic closure keep HTML/ZIP in the trans
   manager.getTicket=id=>f.prisma.ticket.findUnique({where:{id},include:{guild:true,category:true,feedback:true}});f.client.tickets=manager;
   if(kind==='confirmed'){
    await manager.scheduleClose(await manager.getTicket(f.ticket.id),{id:'request'},f.userId,'Resolved');
-   await manager.acceptClose({channel:{id:f.ticket.id},guild,editReply:async()=>{}});
+   f.client.supers=['confirmer'];
+   await manager.acceptClose({channel:{id:f.ticket.id},guild,guildId:f.id,user:{id:'confirmer'},editReply:async()=>{}},'request');
   }else if(kind==='automatic'){
    const deadline=new Date(Date.now()-1);await f.prisma.ticket.update({where:{id:f.ticket.id},data:{closeScheduledAt:deadline}});await manager.finallyClose(f.ticket.id,{expectedCloseAt:deadline});
   }else await manager.finallyClose(f.ticket.id,{closedBy:f.userId,reason:'Resolved'});

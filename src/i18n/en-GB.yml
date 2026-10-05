@@ -523,6 +523,7 @@ ticket:
   claimed: 🙌 {user} has claimed this ticket.
   close:
     already_closed: This ticket is already closed. The channel stays available to staff until Delete is used.
+    request_expired: This close request is no longer active. Use Close to send a new request.
     retained: The creator and other participants can no longer see this channel. Archiving is in progress. Staff can still use /faq-analyze, /transcript and other staff commands. Use Delete or /delete to remove the channel once the required data is secured.
     retained_no_archive: The creator and other participants can no longer see this channel. Staff commands remain available. Message archiving is disabled. Use Delete or /delete to remove the channel.
     closed:

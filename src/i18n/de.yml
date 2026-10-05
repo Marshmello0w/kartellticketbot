@@ -502,6 +502,7 @@ ticket:
     no_value: '*Keine Antwort*'
   close:
     already_closed: Dieses Ticket ist bereits geschlossen. Für das Team bleibt der Kanal bis „Löschen“ erhalten.
+    request_expired: Diese Schließanfrage ist nicht mehr aktiv. Mit „Schließen“ kannst du eine neue Anfrage stellen.
     retained: Der Nutzer und weitere Teilnehmer können diesen Kanal nicht mehr sehen. Die Archivierung läuft. Du kannst weiterhin /faq-analyze, /transcript und andere Team-Befehle verwenden. Mit „Löschen“ oder /delete wird der Kanal entfernt, sobald die benötigten Daten gesichert sind.
     retained_no_archive: Der Nutzer und weitere Teilnehmer können diesen Kanal nicht mehr sehen. Der Kanal bleibt für Team-Befehle erhalten. Die Nachrichtenarchivierung ist deaktiviert. Mit „Löschen“ oder /delete wird der Kanal entfernt.
     closed:

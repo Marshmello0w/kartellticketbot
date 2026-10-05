@@ -40,14 +40,15 @@ async function fixture(t) {
  const events=[], logs=[];
  const channel = {id:ticket.id,guildId,guild,name:'🔴🛠️ticket-1',deletable:true,deletions:0,sent:0,
   permissionOverwrites:{cache:overwrites,edit:async(id,flags)=>{events.push('lock');if(channel.failLock)throw Object.assign(new Error('Permission'),{code:50013});const old=overwrites.get(id)||{id,type:1,allow:new D.PermissionsBitField(),deny:new D.PermissionsBitField()};for(const [name,on]of Object.entries(flags)){old[on?'allow':'deny'].add(name);old[on?'deny':'allow'].remove(name)}overwrites.set(id,old)}},
-  messages:{cache:messages,fetch:async query=>{if(typeof query!=='string')return messages;const found=messages.get(query);if(!found)throw Object.assign(new Error('Unknown message'),{code:10008});return found},fetchPins:async()=>({items:[],hasMore:false})},
+  messages:{cache:messages,delete:async id=>messages.delete(id),fetch:async query=>{if(typeof query!=='string')return messages;const found=messages.get(query);if(!found)throw Object.assign(new Error('Unknown message'),{code:10008});return found},fetchPins:async()=>({items:[],hasMore:false})},
   setName:async name=>{channel.name=name},
-  send:async payload=>{channel.sent++;const message={id:id(10+channel.sent),author:{id:ids.bot},embeds:payload.embeds.map(embed=>embed.toJSON()),components:payload.components,allowedMentions:payload.allowedMentions,edit:async data=>Object.assign(message,data)};messages.set(message.id,message);return message},
+  send:async payload=>{channel.sent++;const message={id:id(10+channel.sent),author:{id:ids.bot},embeds:(payload.embeds||[]).map(embed=>embed.toJSON()),components:payload.components,allowedMentions:payload.allowedMentions,edit:async data=>Object.assign(message,data),delete:async()=>messages.delete(message.id)};messages.set(message.id,message);return message},
   delete:async()=>{events.push('delete');if(channel.failDelete)throw Object.assign(new Error('Permission'),{code:50013});channel.deletions++;channel.gone=true}
  };
  const opening={id:ticket.openingMessageId,components:[{components:[{customId:'close'}]}],edit:async data=>Object.assign(opening,data)};messages.set(opening.id,opening);
  const client={prisma:db,i18n,user:{id:ids.bot},supers:[],guilds:{cache:new D.Collection([[guildId,guild]])},channels:{cache:new D.Collection([[ticket.id,channel]]),fetch:async id=>{if(id!==ticket.id||channel.gone)throw Object.assign(new Error('Unknown channel'),{code:10003});return channel}},log:{warn:(...x)=>logs.push(x),error:(...x)=>logs.push(x),info:{tickets(){}}},keyv:{get:async()=>undefined,set:async()=>{},delete:async()=>{}}};
  guild.client=client;
+ t.after(()=>P.stopPresentations(client));
  const Manager=load('src/lib/tickets/manager.js',{'../threads':{pools:{crypto:{queue:async fn=>fn({encrypt:x=>x,decrypt:x=>x})}}},'../ticket-presentation':{...P,syncTicket:async()=>{},requestSync(){}},'../stats':{},'./archiver':class{},'../logging':{logTicketEvent:async(_,event)=>events.push(event.action)},'../transcripts':{deliverTranscript:async()=>{}}});
  const manager=Object.create(Manager.prototype);manager.client=client;manager.$count={categories:{}};
  const read=()=>db.ticket.findUnique({where:{id:ticket.id},include:{guild:true,category:true,feedback:true}});
@@ -72,11 +73,107 @@ test('closed ticket keeps category text, team commands and participant privacy u
  await assert.rejects(actions.performAction(f.client,{guildId:f.guildId,ticketId:f.ids.ticket,actorId:f.ids.staff,action:'transfer',value:f.ids.other}),e=>e.supportKey==='ticket.support.errors.closed');
 });
 
-test('Close by staff is immediate, while creator feedback/confirmation and stale buttons are safe',sqlite,async t=>{
+test('Close by staff requests creator confirmation before retaining the closed channel for Delete',sqlite,async t=>{
  const f=await fixture(t), replies=[];
- const interaction={channel:{id:f.ids.ticket},guild:f.client.guilds.cache.get(f.guildId),guildId:f.guildId,user:{id:f.ids.staff},deferReply:async()=>{},editReply:async data=>replies.push(data),reply:async data=>replies.push(data)};
- await f.manager.beforeRequestClose(interaction);assert.equal((await f.read()).open,false);assert.equal(f.channel.deletions,0);
+ const interaction={channel:{id:f.ids.ticket},guild:f.client.guilds.cache.get(f.guildId),guildId:f.guildId,user:{id:f.ids.staff},member:{displayName:'Staff'},deferReply:async()=>{},editReply:async data=>{replies.push(data);return f.channel.send(data)},reply:async data=>replies.push(data)};
+ await f.manager.beforeRequestClose(interaction);assert.equal((await f.read()).open,true);assert.equal(f.channel.deletions,0);
+ const requestId=(await f.read()).closeRequestMessageId;
+ await f.manager.acceptClose({...interaction,user:{id:f.ids.creator}},requestId);assert.equal((await f.read()).open,false);assert.equal(f.channel.deletions,0);
  await f.manager.beforeRequestClose({...interaction,user:{id:f.ids.creator}});assert.match(replies.at(-1).content,/bereits geschlossen/);assert.equal(replies.at(-1).flags,D.MessageFlags.Ephemeral);
+});
+
+function interaction(f, actor=f.ids.staff, message=null) {
+ const replies=[], guild=f.client.guilds.cache.get(f.guildId); let reply;
+ return { channel:f.channel,guild,guildId:f.guildId,user:{id:actor,toString:()=>`<@${actor}>`},member:guild.members.cache.get(actor),message,createdAt:new Date(),replies,
+  deferReply:async()=>{},reply:async data=>replies.push(data),update:async data=>message.edit(data),
+  editReply:async data=>{replies.push(data);if(!reply)reply=await f.channel.send(data);else await reply.edit(data);return reply},
+  showModal:async modal=>replies.push(modal),followUp:async()=>{}
+ };
+}
+
+test('user request, continued conversation and a fresh team request require a new creator confirmation',sqlite,async t=>{
+ const f=await fixture(t);
+ await f.manager.beforeRequestClose(interaction(f,f.ids.creator));
+ const old=await f.read(), oldMessage=f.channel.messages.cache.get(old.closeRequestMessageId);
+ assert.equal(JSON.parse(oldMessage.components[0].components[0].data.custom_id).expect,'staff');
+ await actions.claimOnReply(f.client,{guildId:f.guildId,channelId:f.ids.ticket,author:{id:f.ids.staff,bot:false},content:'I can still help.'});
+ await P.recordParticipant(f.client,f.ids.ticket,f.ids.staff,new Date(),null,false);
+ let row=await f.read();assert.equal(row.open,true);assert.equal(row.closeRequestedAt,null);assert.equal(row.closeScheduledAt,null);assert.equal(row.closeRequestMessageId,null);
+ assert.equal(f.channel.messages.cache.has(old.closeRequestMessageId),false);
+ await f.manager.beforeRequestClose(interaction(f));row=await f.read();
+ assert.equal(row.open,true);assert.equal(row.claimedById,f.ids.staff);assert.equal(row.closeRequestedById,f.ids.staff);assert.equal(row.priority,'HIGH');
+ assert.notEqual(row.closeRequestMessageId,old.closeRequestMessageId);assert.ok(+row.closeRequestedAt>+old.closeRequestedAt);assert.equal(+row.closeScheduledAt-+row.closeRequestedAt,43200000);
+ const Close=load('src/buttons/close.js'),button=Object.create(Close.prototype);button.client=f.client;
+ const stale=interaction(f,f.ids.staff,oldMessage);await button.run({accepted:true,expect:'staff'},stale);
+ assert.match(stale.replies[0].content,/nicht mehr aktiv/);assert.equal((await f.read()).open,true);
+ const current=f.channel.messages.cache.get(row.closeRequestMessageId);assert.equal(JSON.parse(current.components[0].components[0].data.custom_id).expect,'user');
+ await button.run({accepted:true,expect:'user'},interaction(f,f.ids.creator,current));
+ assert.equal((await f.read()).open,false);assert.equal((await f.read()).closedById,f.ids.staff);assert.equal(f.channel.deletions,0);
+});
+
+test('expired accept/reject controls and stale feedback cannot close or cancel a newer request',sqlite,async t=>{
+ const f=await fixture(t);await f.db.category.update({where:{id:f.category.id},data:{enableFeedback:true}});
+ await f.manager.beforeRequestClose(interaction(f));
+ const old=await f.read(),oldMessage=f.channel.messages.cache.get(old.closeRequestMessageId);
+ const Close=load('src/buttons/close.js'),button=Object.create(Close.prototype);button.client=f.client;
+ const openModal=interaction(f,f.ids.creator,oldMessage);await button.run({accepted:true,expect:'user'},openModal);
+ const modalId=JSON.parse(openModal.replies[0].toJSON().custom_id);assert.equal(modalId.request,old.closeRequestMessageId);assert.ok(openModal.replies[0].toJSON().custom_id.length<=100);
+ await P.recordParticipant(f.client,f.ids.ticket,f.ids.creator,new Date(),null,false);
+ await f.manager.beforeRequestClose(interaction(f));const fresh=await f.read();
+ for(const accepted of [true,false]){const stale=interaction(f,f.ids.creator,oldMessage);await button.run({accepted,expect:'user'},stale);assert.match(stale.replies[0].content,/nicht mehr aktiv/);}
+ const Feedback=load('src/modals/feedback.js',{'../lib/threads':{pools:{crypto:{queue:async fn=>fn({encrypt:x=>x})}}}}),feedback=Object.create(Feedback.prototype);feedback.client=f.client;
+ const staleModal=interaction(f,f.ids.creator);staleModal.fields={getTextInputValue:()=>assert.fail('Expired feedback must be refused before saving')};
+ await feedback.run(modalId,staleModal);assert.match(staleModal.replies[0].content,/nicht mehr aktiv/);
+ assert.equal((await f.read()).open,true);assert.equal((await f.read()).closeRequestMessageId,fresh.closeRequestMessageId);assert.equal((await f.read()).feedback,null);
+});
+
+test('current feedback retains the request ID, saves the rating and confirms only that request',sqlite,async t=>{
+ const f=await fixture(t);await f.db.category.update({where:{id:f.category.id},data:{enableFeedback:true}});
+ await f.manager.beforeRequestClose(interaction(f));const row=await f.read();
+ const Close=load('src/buttons/close.js'),button=Object.create(Close.prototype);button.client=f.client;
+ const confirm=interaction(f,f.ids.creator,f.channel.messages.cache.get(row.closeRequestMessageId));
+ await button.run({accepted:true,expect:'user'},confirm);const id=JSON.parse(confirm.replies[0].toJSON().custom_id);
+ const Feedback=load('src/modals/feedback.js',{'../lib/threads':{pools:{crypto:{queue:async fn=>fn({encrypt:x=>x})}}}}),modal=Object.create(Feedback.prototype);modal.client=f.client;
+ const submit=interaction(f,f.ids.creator);submit.fields={getTextInputValue:key=>key==='rating'?'5':'Solved'};
+ await modal.run(id,submit);const closed=await f.read();assert.equal(closed.open,false);assert.equal(closed.feedback.rating,5);assert.equal(closed.feedback.comment,'Solved');assert.equal(f.channel.deletions,0);assert.equal(f.events.filter(event=>event==='close').length,1);assert.equal(submit.replies.some(reply=>/nicht mehr aktiv/.test(reply.content||'')),false);
+});
+
+test('a message during the confirmation delay cancels closing; a new request also survives an old confirmation',sqlite,async t=>{
+ for(const renew of [false,true]){
+  const f=await fixture(t);await f.manager.beforeRequestClose(interaction(f));const old=await f.read(),read=f.manager.getTicket;let reads=0;
+  f.manager.getTicket=async()=>{if(++reads===2){await P.recordParticipant(f.client,f.ids.ticket,f.ids.creator,new Date(),null,false);if(renew)await f.manager.beforeRequestClose(interaction(f));}return read()};
+  const confirm=interaction(f,f.ids.creator);await f.manager.acceptClose(confirm,old.closeRequestMessageId);
+  const row=await f.read();assert.equal(row.open,true);assert.equal(row.closeChannelPending,false);assert.equal(f.channel.permissionOverwrites.cache.get(f.ids.creator).allow.has('ViewChannel'),true);
+  assert.match(confirm.replies.at(-1).content,/nicht mehr aktiv/);
+  if(renew)assert.notEqual(row.closeRequestMessageId,old.closeRequestMessageId);else assert.equal(row.closeRequestMessageId,null);
+ }
+});
+
+test('rejecting an old request while the Discord update is pending cannot cancel the newly created request',sqlite,async t=>{
+ const f=await fixture(t);await f.manager.beforeRequestClose(interaction(f));const old=await f.read();
+ const Close=load('src/buttons/close.js'),button=Object.create(Close.prototype);button.client=f.client;
+ const reject=interaction(f,f.ids.creator,f.channel.messages.cache.get(old.closeRequestMessageId));
+ reject.update=async()=>{await P.recordParticipant(f.client,f.ids.ticket,f.ids.creator,new Date(),null,false);await f.manager.beforeRequestClose(interaction(f));};
+ await button.run({accepted:false,expect:'user'},reject);
+ const row=await f.read();assert.equal(row.open,true);assert.notEqual(row.closeRequestMessageId,old.closeRequestMessageId);assert.ok(row.closeRequestedAt);
+});
+
+test('request confirmation is refused for the requester, unrelated staff, the wrong server and missing request IDs',sqlite,async t=>{
+ const f=await fixture(t);await f.manager.beforeRequestClose(interaction(f,f.ids.creator));const row=await f.read();
+ for(const [actor,guildId,requestId]of [[f.ids.creator,f.guildId,row.closeRequestMessageId],[f.ids.other,f.guildId,row.closeRequestMessageId],[f.ids.staff,'another',row.closeRequestMessageId],[f.ids.staff,f.guildId,null]]){
+  const confirm={...interaction(f,actor),guildId};await f.manager.acceptClose(confirm,requestId);assert.equal((await f.read()).open,true);assert.ok(confirm.replies[0].content);
+ }
+});
+
+test('an atomic confirmed close cannot win after a newer request replaces its database snapshot',sqlite,async t=>{
+ const f=await fixture(t);await f.manager.beforeRequestClose(interaction(f));const old=await f.read();let replaced=false;
+ const ticketDb=new Proxy(f.db.ticket,{get(target,key){if(key!=='updateMany')return Reflect.get(target,key);return async args=>{
+  if(args.data.open===false&&!replaced){replaced=true;await target.update({where:{id:f.ids.ticket},data:{closeRequestMessageId:'new-request',closeRequestedAt:new Date()}})}
+  return target.updateMany(args);
+ }}});
+ f.client.prisma=new Proxy(f.db,{get:(target,key)=>key==='ticket'?ticketDb:Reflect.get(target,key)});
+ const confirm=interaction(f,f.ids.creator);await f.manager.acceptClose(confirm,old.closeRequestMessageId);
+ assert.equal(replaced,true);assert.equal((await f.read()).open,true);assert.equal((await f.read()).closeRequestMessageId,'new-request');assert.equal(f.events.includes('lock'),false);
 });
 
 test('close lock/capture failures retry after restart, without requesting deletion',sqlite,async t=>{
@@ -122,7 +219,8 @@ test('closed staff workspace messages cannot rewrite the archived conversation; 
  const f=await fixture(t);await f.manager.finallyClose(f.ids.ticket,{closedBy:f.ids.staff});
  const Archiver=load('src/lib/tickets/archiver.js',{'../threads':{pools:{crypto:{queue:async fn=>fn({encrypt:x=>x,decrypt:x=>x})}}}});
  assert.equal(await new Archiver(f.client).saveMessage(f.ids.ticket,{id:'later',createdAt:new Date(Date.now()+1000)}),true);assert.equal(await f.db.archivedMessage.count({where:{ticketId:f.ids.ticket}}),0);
- const keys=new Set(getCatalog(i18n,'de').map(x=>x.key));for(const key of ['buttons.delete.text','ticket.close.retained','ticket.delete.queued'])assert.ok(keys.has(key));
+ const keys=new Set(getCatalog(i18n,'de').map(x=>x.key));for(const key of ['buttons.delete.text','ticket.close.retained','ticket.delete.queued','ticket.close.request_expired'])assert.ok(keys.has(key));
+ assert.throws(()=>validateOverrides(i18n,'de',{'ticket.close.request_expired':'x'.repeat(2001)}));
  assert.throws(()=>validateOverrides(i18n,'de',{'buttons.delete.text':'x'.repeat(81)}));
  await f.db.guild.update({where:{id:f.guildId},data:{textOverrides:{'buttons.delete.text':'Server Delete'}}});assert.equal((await getSupportMessages(f.client,{ticketId:f.ids.ticket}))('buttons.delete.text'),'Server Delete');
  await f.db.category.update({where:{id:f.category.id},data:{textOverrides:{'buttons.delete.text':'Category Delete'}}});assert.equal((await getSupportMessages(f.client,{ticketId:f.ids.ticket}))('buttons.delete.text'),'Category Delete');

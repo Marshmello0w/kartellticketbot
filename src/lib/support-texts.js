@@ -29,6 +29,7 @@ function flatten(object, prefix = '', result = {}) {
 }
 
 function getLimit(key) {
+	if (key === 'ticket.close.request_expired') return 2000;
 	if (key.startsWith('commands.slash.faq-analyze.')) return 2000;
 	if (key.startsWith('buttons.')) return 80;
 	if (key.startsWith('ticket.ai.')) return key.endsWith('_title') || key.endsWith('.title') ? 256 : 2000;

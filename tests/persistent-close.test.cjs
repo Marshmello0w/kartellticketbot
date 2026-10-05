@@ -65,7 +65,7 @@ test('schedule saves twelve-hour deadline, encrypted reason and request metadata
 test('reject clears all persisted request fields', async () => {
  let saved;
  const manager = Object.create(Manager.prototype);
- manager.client = { prisma: { ticket: { update: async x => { saved = x; } } } };
+ manager.client = { prisma: { ticket: { updateMany: async x => { saved = x; return { count: 1 }; } } } };
  await manager.cancelClose('ticket');
  for (const field of fields) assert.equal(saved.data[field], null);
 });

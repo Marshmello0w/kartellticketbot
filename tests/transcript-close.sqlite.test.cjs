@@ -52,7 +52,8 @@ test('SQLite: confirmed and automatic close enqueue delivery; failed send surviv
   }
   const confirmed = await create(2);
   await manager.scheduleClose(await manager.getTicket(confirmed.id), { id: 'request' }, userId, 'Resolved');
-  await manager.acceptClose({ channel: { id: confirmed.id }, guild, editReply: async payload => replies.push(payload) });
+  client.supers = ['confirmer'];
+  await manager.acceptClose({ channel: { id: confirmed.id }, guild, guildId, user: { id: 'confirmer' }, editReply: async payload => replies.push(payload) }, 'request');
   assert.equal(replies[0].embeds[0].toJSON().title, 'Ticket closed');
   assert.equal((await manager.buildFeedbackModal(await manager.getTicket(confirmed.id), { next: 'acceptClose' })).toJSON().title, 'Your feedback');
   assert.equal(sent.length, 1); assert.equal(sent[0].files.length, 1);

@@ -205,7 +205,7 @@ test('SQLite: manual, confirmed, automatic and channel-deletion closure remove t
  const survivor=await f.create(); await P.syncTicket(f.client,survivor.ticket.id);
  for(const kind of ['manual','confirmed','automatic','deleted']) {
   const row=await f.create(); await P.syncTicket(f.client,row.ticket.id); const overviewId=(await f.read(row.ticket.id)).overviewMessageId;
-  if(kind==='confirmed') await manager.acceptClose({channel:row.channel,guild:f.guild,editReply:async()=>{}});
+  if(kind==='confirmed') {const request=row.channel.add({embeds:[new D.EmbedBuilder().setTitle('Close?')]});await manager.scheduleClose(await f.read(row.ticket.id),request,f.ids.creator,null);await manager.acceptClose({channel:row.channel,guild:f.guild,user:{id:f.ids.staff},editReply:async()=>{}},request.id);}
   else if(kind==='automatic') {const deadline=new Date(Date.now()-1000); await f.db.ticket.update({where:{id:row.ticket.id},data:{closeScheduledAt:deadline}}); await manager.finallyClose(row.ticket.id,{expectedCloseAt:deadline});}
   else if(kind==='deleted') {f.client.channels.cache.delete(row.ticket.id); await P.syncTicket(f.client,row.ticket.id);}
   else await manager.finallyClose(row.ticket.id,{closedBy:f.ids.staff});

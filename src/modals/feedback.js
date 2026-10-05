@@ -3,6 +3,7 @@ const { Modal } = require('@eartharoid/dbf');
 const ExtendedEmbedBuilder = require('../lib/embed');
 const { MessageFlags } = require('discord.js');
 const { pools } = require('../lib/threads');
+const { closeRequestError } = require('../lib/close-request');
 
 const { crypto } = pools;
 module.exports = class FeedbackModal extends Modal {
@@ -22,6 +23,21 @@ module.exports = class FeedbackModal extends Modal {
 		const client = this.client;
 
 		await interaction.deferReply();
+		if (id.next === 'acceptClose') {
+			const ticket = await client.tickets.getTicket(interaction.channel.id, true);
+			const error = await closeRequestError(client, ticket, interaction, id.request);
+			if (error) {
+				const getMessage = await getSupportMessages(client, {
+					ticketId: interaction.channel.id,
+					guildId: interaction.guildId || interaction.guild?.id,
+				});
+				return interaction.editReply({
+					content: getMessage(error),
+					components: [],
+					embeds: [],
+				});
+			}
+		}
 
 		const comment = interaction.fields.getTextInputValue('comment');
 		let rating = parseInt(interaction.fields.getTextInputValue('rating')) || null; // any integer, or null if NaN
@@ -48,7 +64,7 @@ module.exports = class FeedbackModal extends Modal {
 
 
 		if (id.next === 'requestClose') await client.tickets.requestClose(interaction, id.reason);
-		else if (id.next === 'acceptClose') await client.tickets.acceptClose(interaction);
+		else if (id.next === 'acceptClose') await client.tickets.acceptClose(interaction, id.request);
 
 		const getMessage = await getSupportMessages(client, { ticketId: ticket.id || interaction.channelId });
 
